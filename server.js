@@ -6,8 +6,9 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PORT = Number(process.env.PORT) || 3000;
-// En tu PC escucha solo en 127.0.0.1; en la nube, la variable HOST=0.0.0.0
-const HOST = process.env.HOST || '127.0.0.1';
+// En tu PC escucha solo en 127.0.0.1. En Render (variable RENDER presente) escucha en 0.0.0.0.
+// HOST permite forzar otro valor si hace falta.
+const HOST = process.env.HOST || (process.env.RENDER ? '0.0.0.0' : '127.0.0.1');
 const CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
 const REDIRECT_URI =
   process.env.SPOTIFY_REDIRECT_URI || `http://127.0.0.1:${PORT}/callback`;
@@ -109,5 +110,5 @@ app.get('/api/artist-info', async (req, res) => {
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.listen(PORT, HOST, () => {
-  console.log(`spodj listo → abre http://127.0.0.1:${PORT} en tu navegador`);
+  console.log(`spodj escuchando en ${HOST}:${PORT}`);
 });
