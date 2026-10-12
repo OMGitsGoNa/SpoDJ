@@ -1055,6 +1055,50 @@ async function continueWithRelated(name) {
   }
 }
 
+// Descubrimiento a ciegas: elige un artista nuevo al azar entre los relacionados
+// y reproduce sus canciones. Evita tus artistas del top y los que ya salieron.
+const blindSeen = new Set();
+async function discoverBlind(button) {
+  // Excluimos lo que ya se ve en pantalla: tus artistas, los relacionados mostrados y los ya descubiertos.
+  const shown = new Set((state.recArtist?.similar || []).map((n) => n.toLowerCase()));
+  const excluded = new Set([
+    ...(state.topArtists || []).map((x) => x.name.toLowerCase()),
+    ...shown,
+    ...blindSeen,
+    (state.recArtist?.name || '').toLowerCase(),
+  ]);
+  const free = (name) => name && !excluded.has(name.toLowerCase());
+
+  button.disabled = true;
+  try {
+    // Segundo nivel: relacionados de un relacionado al azar (así el resultado no sale de la lista visible).
+    let candidates = [];
+    const seeds = shuffle(state.recArtist?.similar || []);
+    for (const seed of seeds.slice(0, 3)) {
+      const info = await artistInfo(seed, 'similar');
+      candidates = shuffle((info.items || []).map((i) => i.name).filter(free));
+      if (candidates.length) break;
+    }
+    // Si no sale nada, relacionados de un artista de tu top al azar.
+    if (!candidates.length && state.topArtists.length) {
+      const info = await artistInfo(shuffle(state.topArtists)[0].name, 'similar');
+      candidates = shuffle((info.items || []).map((i) => i.name).filter(free));
+    }
+    if (!candidates.length) {
+      setStatus('No encuentro un artista nuevo por ahora. Prueba más tarde.', true);
+      return;
+    }
+    const pick = candidates[0];
+    blindSeen.add(pick.toLowerCase());
+    setStatus(`Descubrimiento a ciegas: ${pick}`);
+    await continueWithRelated(pick);
+  } catch (err) {
+    setStatus(err.message || 'No se ha podido descubrir un artista.', true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function renderRecs() {
   const box = $('recs');
   box.textContent = '';
@@ -1089,7 +1133,16 @@ function renderRecs() {
   if (r.similar && r.similar.length) {
     const sub = document.createElement('h3');
     sub.textContent = 'Artistas relacionados';
-    sub.style.margin = '18px 0 8px';
+    const subHead = document.createElement('div');
+    subHead.className = 'section-head';
+    subHead.style.margin = '18px 0 8px';
+    const blind = document.createElement('button');
+    blind.type = 'button';
+    blind.className = 'ghost small';
+    blind.textContent = '🎲 A ciegas';
+    blind.title = 'Descubrir un artista nuevo al azar y reproducir sus canciones';
+    blind.addEventListener('click', () => discoverBlind(blind));
+    subHead.append(sub, blind);
     const chips = document.createElement('div');
     chips.className = 'chips';
     for (const name of r.similar) {
@@ -1101,7 +1154,7 @@ function renderRecs() {
       b.addEventListener('click', () => loadArtistRecs(name));
       chips.appendChild(b);
     }
-    box.append(sub, chips);
+    box.append(subHead, chips);
   }
 }
 
