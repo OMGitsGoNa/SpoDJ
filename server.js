@@ -140,5 +140,5 @@ app.get('/api/tag-artists', async (req, res) => {
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.listen(PORT, HOST, () => {
-  console.log(`spodj escuchando en ${HOST}:${PORT}`);
+  console.log(`SpoDJ escuchando en ${HOST}:${PORT}`);
 });

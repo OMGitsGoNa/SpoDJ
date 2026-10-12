@@ -101,7 +101,7 @@ function fmtTime(ms) {
 }
 
 // Contador local: cuenta una reproducción cuando la canción supera los 30 segundos
-// (el mismo criterio que usa Spotify). Solo cuenta lo que pones desde spodj.
+// (el mismo criterio que usa Spotify). Solo cuenta lo que pones desde SpoDJ.
 function playCounts() {
   try { return JSON.parse(store.get('plays') || '{}') || {}; } catch { return {}; }
 }
@@ -374,7 +374,7 @@ function initPlayer() {
 
     window.onSpotifyWebPlaybackSDKReady = () => {
       player = new Spotify.Player({
-        name: 'spodj',
+        name: 'SpoDJ',
         getOAuthToken: (cb) => { getToken().then(cb).catch(() => logout('Tu sesión ha caducado.')); },
         volume: state.volume,
       });
@@ -398,7 +398,7 @@ function initPlayer() {
         const t = st.track_window.current_track;
 
         // Registro para diagnosticar (se ve en la consola del navegador, F12).
-        console.log('[spodj] estado', JSON.stringify({
+        console.log('[SpoDJ] estado', JSON.stringify({
           pista: t.name, id: t.id, pausado: st.paused, cargando: st.loading,
           posicion_s: Math.round(st.position / 1000), duracion_s: Math.round(st.duration / 1000),
           restricciones: st.restrictions,
@@ -461,7 +461,7 @@ async function handlePlaybackError(message) {
   let st = null;
   try { st = await player.getCurrentState(); } catch { /* sin estado */ }
   const t = st?.track_window?.current_track;
-  console.warn('[spodj] playback_error:', message, '| pista:', t?.name, t?.id, '| estado:', st);
+  console.warn('[SpoDJ] playback_error:', message, '| pista:', t?.name, t?.id, '| estado:', st);
 
   if (t?.id) {
     state.failedIds.add(t.id);
@@ -474,7 +474,7 @@ async function handlePlaybackError(message) {
   if (state.errorStreak >= 3) {
     try { await player.pause(); } catch { /* ya parado */ }
     playerNote('Fallan varias canciones seguidas, así que probablemente no son las canciones sino el navegador ' +
-      '(la protección DRM/Widevine). Abre spodj en Chrome, Edge o Firefox, no en el navegador integrado de VS Code.');
+      '(la protección DRM/Widevine). Abre SpoDJ en Chrome, Edge o Firefox, no en el navegador integrado de VS Code.');
     return;
   }
   playerNote(`No se ha podido reproducir "${t?.name ?? 'esta canción'}". Paso a la siguiente…`);
@@ -535,7 +535,7 @@ function trackRow(track, rank, onClick) {
     const pc = document.createElement('span');
     pc.className = 'pc';
     pc.textContent = `${n}×`;
-    pc.title = 'Veces que la has escuchado en spodj';
+    pc.title = 'Veces que la has escuchado en SpoDJ';
     btn.appendChild(pc);
   }
 
@@ -764,7 +764,7 @@ async function tick() {
   try { applyState(await player.getCurrentState()); } catch { /* sin estado */ }
 }
 
-/* ---------- Historial de spodj ---------- */
+/* ---------- Historial de SpoDJ ---------- */
 // Guarda las últimas 20 canciones que has escuchado aquí (en el navegador).
 const HISTORY_MAX = 20;
 
@@ -797,7 +797,7 @@ function renderHistory() {
   box.textContent = '';
   const items = historyItems();
   if (!items.length) {
-    box.appendChild(emptyNote('Aquí aparecerán las últimas canciones que escuches en spodj.'));
+    box.appendChild(emptyNote('Aquí aparecerán las últimas canciones que escuches en SpoDJ.'));
     return;
   }
   items.forEach((track, i) => {
@@ -849,7 +849,7 @@ function fadeTick() {
 
 // Portada de fondo: aparece en 2 s al empezar la canción y, si el fundido está activo,
 // se desvanece junto con el final de la canción.
-const BG_OPACITY = 0.05;
+const BG_OPACITY = 0.2;
 const BG_FADE_IN_MS = 2000;
 function setBgArt(url) {
   const img = $('bg-art');
@@ -1432,7 +1432,7 @@ $('modal').addEventListener('click', (event) => {
 function renderStats(body) {
   const list = Object.entries(statsData()).map(([id, s]) => ({ id, ...s }));
   if (!list.length) {
-    body.appendChild(el('p', 'sub', 'Todavía no hay estadísticas. Una canción cuenta cuando supera los 30 segundos desde spodj. Las estadísticas empiezan a contar desde esta versión.'));
+    body.appendChild(el('p', 'sub', 'Todavía no hay estadísticas. Una canción cuenta cuando supera los 30 segundos desde SpoDJ. Las estadísticas empiezan a contar desde esta versión.'));
     return;
   }
 
@@ -1496,7 +1496,7 @@ function renderStats(body) {
   const clear = el('button', 'ghost small', 'Borrar estadísticas');
   clear.type = 'button';
   clear.addEventListener('click', () => {
-    if (!window.confirm('¿Borrar las estadísticas y los contadores de reproducciones de spodj?')) return;
+    if (!window.confirm('¿Borrar las estadísticas y los contadores de reproducciones de SpoDJ?')) return;
     store.del('stats');
     store.del('plays');
     state.counted = new Set();
@@ -1648,7 +1648,7 @@ function updateMediaSession(t, paused, position, duration) {
 }
 
 /* ---------- Instalación como app (PWA) ---------- */
-// Registra el service worker: permite instalar spodj y abrirla sin barra del navegador.
+// Registra el service worker: permite instalar SpoDJ y abrirla sin barra del navegador.
 if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(() => { /* sin instalación offline */ });

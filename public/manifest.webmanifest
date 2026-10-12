@@ -1,6 +1,6 @@
 {
-  "name": "spodj",
-  "short_name": "spodj",
+  "name": "SpoDJ",
+  "short_name": "SpoDJ",
   "description": "Tu música, tus géneros: top de Spotify y recomendaciones por artista.",
   "start_url": "/",
   "scope": "/",
