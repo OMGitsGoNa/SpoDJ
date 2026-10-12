@@ -1451,6 +1451,14 @@ function updateMediaSession(t, paused, position, duration) {
   }
 }
 
+/* ---------- Instalación como app (PWA) ---------- */
+// Registra el service worker: permite instalar spodj y abrirla sin barra del navegador.
+if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => { /* sin instalación offline */ });
+  });
+}
+
 /* ---------- Arranque ---------- */
 (async function init() {
   loadPrefs();
