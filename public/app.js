@@ -715,6 +715,8 @@ function applyState(st) {
 
   }
 
+  updateMediaSession(t, paused, st.position || 0, st.duration || 0);
+
   // Guardamos la última posición conocida para poder estimarla entre consultas.
   state.posBase = { position: st.position || 0, duration: st.duration || 0, paused, at: Date.now() };
 
@@ -1403,6 +1405,52 @@ document.addEventListener('keydown', (event) => {
   }
 });
 
+/* ---------- Controles del sistema (Media Session) ---------- */
+// Teclas multimedia del teclado, controles del sistema y pantalla de bloqueo del móvil.
+let mediaTrackId = null;
+function setupMediaActions() {
+  if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+  const act = (name, fn) => {
+    try { navigator.mediaSession.setActionHandler(name, fn); } catch { /* acción no soportada */ }
+  };
+  act('play', () => { state.lastUserAction = Date.now(); player?.resume(); });
+  act('pause', () => { state.lastUserAction = Date.now(); player?.pause(); });
+  act('previoustrack', () => { state.lastUserAction = Date.now(); player?.previousTrack(); });
+  act('nexttrack', () => { state.lastUserAction = Date.now(); player?.nextTrack(); });
+  act('seekto', (details) => {
+    if (details.seekTime == null) return;
+    state.lastUserAction = Date.now();
+    player?.seek(details.seekTime * 1000).catch(() => { /* no crítico */ });
+  });
+}
+function updateMediaSession(t, paused, position, duration) {
+  if (typeof navigator === 'undefined' || !('mediaSession' in navigator) || !t) return;
+  if (t.id && t.id !== mediaTrackId) {
+    mediaTrackId = t.id;
+    const images = (t.album?.images || []).map((i) => ({
+      src: i.url,
+      sizes: `${i.width || 640}x${i.height || 640}`,
+      type: 'image/jpeg',
+    }));
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: t.name,
+      artist: (t.artists || []).map((a) => a.name).join(', '),
+      album: t.album?.name || '',
+      artwork: images,
+    });
+  }
+  navigator.mediaSession.playbackState = paused ? 'paused' : 'playing';
+  if (duration > 0 && navigator.mediaSession.setPositionState) {
+    try {
+      navigator.mediaSession.setPositionState({
+        duration: duration / 1000,
+        playbackRate: 1,
+        position: Math.min(position, duration) / 1000,
+      });
+    } catch { /* posición no soportada */ }
+  }
+}
+
 /* ---------- Arranque ---------- */
 (async function init() {
   loadPrefs();
@@ -1411,6 +1459,7 @@ document.addEventListener('keydown', (event) => {
   renderProfile();
   renderAccentPicker();
   applyTheme(store.get('theme') || 'dark');
+  setupMediaActions();
   renderHistory();
   if (state.fade) startFade();
   try {
