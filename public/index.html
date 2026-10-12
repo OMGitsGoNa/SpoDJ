@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>spodj</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header>
+      <!-- Perfil: desplegable a la izquierda -->
+      <div class="profile-wrap" id="profile-wrap">
+        <button class="ghost small profile-btn" id="profile-btn" type="button" aria-haspopup="true" aria-expanded="false">
+          <img id="profile-img" alt="" hidden />
+          <span id="profile-name">Sin sesión</span> ▾
+        </button>
+        <div class="profile-menu" id="profile-menu" hidden>
+          <button class="ghost small" id="profile-login" type="button" hidden>Conectar con Spotify</button>
+          <button class="ghost small" id="profile-logout" type="button" hidden>Cerrar sesión</button>
+          <button class="ghost small" id="open-stats" type="button">Estadísticas</button>
+          <button class="ghost small" id="theme-toggle" type="button">Tema claro</button>
+          <button class="ghost small" id="open-help" type="button">Atajos de teclado</button>
+          <!-- Color de énfasis: solo se ve el elegido; al pasar el ratón salen las demás. Los botones los pone app.js -->
+          <div class="accent-row" id="accent-row" role="radiogroup" aria-label="Color de énfasis">
+            <span class="sub">Color de énfasis</span>
+          </div>
+        </div>
+      </div>
+      <div class="brand">
+        <h1>spo<span>dj</span></h1>
+        <div class="sub">tu música, tus géneros</div>
+      </div>
+    </header>
+
+    <!-- ---------- Login ---------- -->
+    <section id="login-view" class="card">
+      <h2>Conecta tu Spotify</h2>
+      <p>Inicia sesión con tu cuenta de Spotify Premium para ver tus canciones más escuchadas y descubrir música de tus géneros favoritos.</p>
+      <button id="login-btn">Conectar con Spotify</button>
+      <div id="login-status" class="sub" style="margin-top:14px"></div>
+    </section>
+
+    <!-- ---------- App ---------- -->
+    <section id="main-view">
+
+      <!-- Ficha de la canción sonando -->
+      <div id="now" class="card">
+        <img id="cover" alt="" />
+        <div class="info">
+          <div class="t" id="track-title">Nada sonando todavía</div>
+          <div class="a" id="track-artist">Elige una canción para empezar</div>
+          <div class="g" id="track-genre"></div>
+        </div>
+        <div class="controls">
+          <button class="ghost" id="prev-btn" title="Anterior" aria-label="Anterior">⏮</button>
+          <button class="ghost" id="toggle-btn" title="Reproducir" aria-label="Pausa o reproducir">▶</button>
+          <button class="ghost" id="next-btn" title="Siguiente" aria-label="Siguiente">⏭</button>
+        </div>
+
+        <div class="progress">
+          <span id="t-cur">0:00</span>
+          <input type="range" id="seek" min="0" max="1000" value="0" aria-label="Posición de la canción" />
+          <span id="t-dur">0:00</span>
+        </div>
+
+        <div class="player-extras">
+          <div class="volume">
+            <span id="vol-icon" aria-hidden="true">🔊</span>
+            <input type="range" id="volume" min="0" max="100" value="70" aria-label="Volumen" />
+            <span id="vol-pct">70 %</span>
+          </div>
+
+          <div class="fade">
+            <label class="switch">
+              <input type="checkbox" id="fade-chk" />
+              <span class="slider" aria-hidden="true"></span>
+              <span class="label">Fundido entre canciones</span>
+            </label>
+            <span id="fade-opts" hidden>
+              <input type="range" id="fade-len" min="2" max="12" step="1" value="6" aria-label="Duración del fundido en segundos" />
+              <span id="fade-secs">6 s</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Periodo y acciones -->
+      <div class="toolbar">
+        <div class="seg" id="range-bar" role="group" aria-label="Periodo">
+          <button type="button" data-range="short_term" class="active">Últimas 4 semanas</button>
+          <button type="button" data-range="medium_term">Últimos 6 meses</button>
+          <button type="button" data-range="long_term">Último año</button>
+        </div>
+        <div>
+          <button class="ghost small" id="refresh-btn" type="button">Actualizar</button>
+          <button class="ghost small" id="logout-btn" type="button">Salir</button>
+        </div>
+      </div>
+
+      <div class="columns">
+        <!-- Izquierda: historial de spodj -->
+        <section class="card" id="history-card">
+          <div class="section-head">
+            <h2>Historial en spodj</h2>
+          </div>
+          <div class="sub" style="margin:-4px 0 8px">Las últimas 20 canciones que has escuchado aquí.</div>
+          <div class="list" id="history-list"></div>
+        </section>
+
+        <!-- Centro: top de canciones -->
+        <section class="card">
+          <div class="section-head">
+            <h2>Tus canciones más escuchadas</h2>
+            <button class="small" id="top-play" type="button">Reproducir todo</button>
+          </div>
+          <div class="list" id="top-list"></div>
+        </section>
+
+        <!-- Derecha: géneros y recomendaciones -->
+        <div class="col-right">
+          <section class="card">
+            <div class="section-head"><h2>Tus géneros más escuchados</h2></div>
+            <div class="chips" id="genres"></div>
+            <div class="sub" style="margin-top:8px">En verde, los géneros con los que se hacen las recomendaciones. El número es cuántos de tus artistas top tienen ese género.</div>
+          </section>
+
+          <section class="card">
+            <div class="section-head"><h2>Recomendaciones por artista</h2></div>
+            <div id="recs"></div>
+          </section>
+        </div>
+      </div>
+
+      <div id="status"></div>
+    </section>
+  </div>
+
+  <!-- Ventana emergente: estadísticas y atajos (la rellena app.js) -->
+  <div id="modal" class="modal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <button class="ghost small modal-close" id="modal-close" type="button" aria-label="Cerrar">×</button>
+      <h2 id="modal-title"></h2>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
