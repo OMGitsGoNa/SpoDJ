@@ -31,6 +31,20 @@
   color-scheme: light;
 }
 
+/* Portada de fondo: detrás de todo, encima del color de fondo, difuminada */
+#bg-art {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  object-fit: cover;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0;
+  filter: blur(10px);
+  transform: scale(1.08); /* evita bordes claros por el desenfoque */
+}
+
 /* ---------- Base ---------- */
 * { box-sizing: border-box; }
 html, body { min-height: 100%; }

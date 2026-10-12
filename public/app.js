@@ -707,6 +707,7 @@ function applyState(st) {
     $('track-artist').textContent = t.artists.map((a) => a.name).join(', ');
     $('cover').src = t.album.images?.[0]?.url || '';
     applyNowColor(t.album.images?.[0]?.url || '');
+    setBgArt(t.album.images?.[0]?.url || '');
     markPlaying();
     updateNowGenre();
     onTrackChange(t.id);
@@ -840,9 +841,50 @@ function estimatedPosition() {
 function fadeTick() {
   const p = estimatedPosition();
   if (!p || !p.duration || p.paused) return;
+  updateBgFadeOut(p);
   const gain = fadeGain(p.position, p.duration, state.fadeMs);
   // Solo mandamos el cambio si se nota, para no saturar al reproductor.
   if (Math.abs(gain - state.lastGain) > 0.02) applyOutputVolume(gain);
+}
+
+// Portada de fondo: aparece en 2 s al empezar la canción y, si el fundido está activo,
+// se desvanece junto con el final de la canción.
+const BG_OPACITY = 0.05;
+const BG_FADE_IN_MS = 2000;
+function setBgArt(url) {
+  const img = $('bg-art');
+  if (!url) {
+    img.removeAttribute('src');
+    img.style.opacity = '0';
+    return;
+  }
+  if (img.dataset.src !== url) {
+    img.dataset.src = url;
+    img.src = url;
+  }
+  // Empieza invisible y, tras un reflow, sube a su opacidad en 2 s
+  img.style.transition = 'none';
+  img.style.opacity = '0';
+  void img.offsetWidth;
+  img.style.transition = `opacity ${BG_FADE_IN_MS}ms ease`;
+  img.style.opacity = String(BG_OPACITY);
+}
+function updateBgFadeOut(p) {
+  const img = $('bg-art');
+  if (!img.dataset.src) return;
+  const len = Math.min(state.fadeMs, Math.floor(p.duration / 3));
+  if (len <= 0) return;
+  const out = Math.max(0, Math.min(1, (p.duration - p.position) / len));
+  // Solo actuamos cuando la canción se está acabando; si no, dejamos la entrada en marcha
+  if (out >= 1) return;
+  img.style.transition = 'opacity .15s linear';
+  img.style.opacity = String(BG_OPACITY * out);
+}
+function restoreBgArt() {
+  const img = $('bg-art');
+  if (!img.dataset.src) return;
+  img.style.transition = 'opacity .35s ease';
+  img.style.opacity = String(BG_OPACITY);
 }
 
 function startFade() {
@@ -854,6 +896,7 @@ function stopFade() {
   clearInterval(state.fadeTicker);
   state.fadeTicker = null;
   applyOutputVolume(1); // devolvemos el volumen entero
+  restoreBgArt();
 }
 
 function setFade(on) {
