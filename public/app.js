@@ -706,6 +706,7 @@ function applyState(st) {
     $('track-title').textContent = t.name;
     $('track-artist').textContent = t.artists.map((a) => a.name).join(', ');
     $('cover').src = t.album.images?.[0]?.url || '';
+    applyNowColor(t.album.images?.[0]?.url || '');
     markPlaying();
     updateNowGenre();
     onTrackChange(t.id);
@@ -860,6 +861,59 @@ function setFade(on) {
   store.set('fade', state.fade ? '1' : '0');
   renderFadeControls();
   if (state.fade) startFade(); else stopFade();
+}
+
+// Color de la portada: solo tiñe la ficha del reproductor, no el resto de la web.
+const coverColors = new Map();
+function extractCoverColor(url) {
+  return new Promise((resolve) => {
+    if (typeof Image === 'undefined' || !url) return resolve(null);
+    if (coverColors.has(url)) return resolve(coverColors.get(url));
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 24;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, 24, 24);
+        const data = ctx.getImageData(0, 0, 24, 24).data;
+        // Media de los píxeles con color (no grises ni casi negros o blancos)
+        let r = 0, g = 0, b = 0, n = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          const max = Math.max(data[i], data[i + 1], data[i + 2]);
+          const min = Math.min(data[i], data[i + 1], data[i + 2]);
+          const sat = max === 0 ? 0 : (max - min) / max;
+          const light = max / 255;
+          if (sat > 0.25 && light > 0.2 && light < 0.9) {
+            r += data[i]; g += data[i + 1]; b += data[i + 2]; n++;
+          }
+        }
+        if (!n) return resolve(null);
+        const color = [Math.round(r / n), Math.round(g / n), Math.round(b / n)];
+        coverColors.set(url, color);
+        resolve(color);
+      } catch {
+        resolve(null); // imagen bloqueada por el navegador: se mantiene el color normal
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+async function applyNowColor(url) {
+  const now = $('now');
+  const color = await extractCoverColor(url);
+  if (!color) {
+    now.style.removeProperty('--np');
+    now.style.removeProperty('--np-ink');
+    return;
+  }
+  // Luminosidad percibida para elegir texto oscuro o claro encima del color
+  const [r, g, b] = color;
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  now.style.setProperty('--np', `rgb(${r}, ${g}, ${b})`);
+  now.style.setProperty('--np-ink', lum > 0.55 ? '#0b0c10' : '#ffffff');
 }
 
 function updateNowGenre() {
@@ -1099,6 +1153,46 @@ async function discoverBlind(button) {
   }
 }
 
+// Anti burbuja: elige un género que no aparece en tus géneros y reproduce un artista de él.
+const BUBBLE_GENRES = ['rock', 'jazz', 'metal', 'reggae', 'blues', 'classical', 'folk', 'country', 'punk',
+  'soul', 'funk', 'ambient', 'salsa', 'flamenco', 'disco', 'k-pop', 'indie', 'hip hop', 'techno', 'gospel', 'latin', 'bossa nova'];
+async function antiBubble(button) {
+  const mine = (state.genres || []).map((g) => g.genre.toLowerCase());
+  const outside = BUBBLE_GENRES.filter((g) => !mine.some((m) => m.includes(g) || g.includes(m)));
+  const shown = new Set((state.recArtist?.similar || []).map((n) => n.toLowerCase()));
+  const excluded = new Set([
+    ...(state.topArtists || []).map((x) => x.name.toLowerCase()),
+    ...shown,
+    ...blindSeen,
+  ]);
+
+  button.disabled = true;
+  try {
+    for (const tag of shuffle(outside).slice(0, 4)) {
+      const res = await fetch(`/api/tag-artists?${new URLSearchParams({ tag })}`);
+      const data = await res.json();
+      if (data.configured === false) {
+        state.lastfmOff = true;
+        setStatus('Para la anti burbuja hace falta LASTFM_API_KEY en el .env.', true);
+        return;
+      }
+      const names = shuffle((data.items || []).map((i) => i.name).filter((n) => !excluded.has(n.toLowerCase())));
+      if (names.length) {
+        const pick = names[0];
+        blindSeen.add(pick.toLowerCase());
+        setStatus(`Fuera de tu burbuja: ${tag} · ${pick}`);
+        await continueWithRelated(pick);
+        return;
+      }
+    }
+    setStatus('No he encontrado un artista fuera de tu burbuja por ahora. Prueba más tarde.', true);
+  } catch (err) {
+    setStatus(err.message || 'No se ha podido buscar fuera de tu burbuja.', true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function renderRecs() {
   const box = $('recs');
   box.textContent = '';
@@ -1142,7 +1236,13 @@ function renderRecs() {
     blind.textContent = '🎲 A ciegas';
     blind.title = 'Descubrir un artista nuevo al azar y reproducir sus canciones';
     blind.addEventListener('click', () => discoverBlind(blind));
-    subHead.append(sub, blind);
+    const bubble = document.createElement('button');
+    bubble.type = 'button';
+    bubble.className = 'ghost small';
+    bubble.textContent = '🫧 Anti burbuja';
+    bubble.title = 'Descubrir un artista de un género que no escuchas';
+    bubble.addEventListener('click', () => antiBubble(bubble));
+    subHead.append(sub, blind, bubble);
     const chips = document.createElement('div');
     chips.className = 'chips';
     for (const name of r.similar) {

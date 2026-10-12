@@ -201,12 +201,15 @@ input[type="range"] { accent-color: var(--accent); cursor: pointer; }
 #now .t, #now .a { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #now .t { font-weight: 600; }
 #now .a { color: var(--muted); font-size: 0.9rem; }
-#now .g { color: var(--accent); font-size: 0.8rem; }
+#now { --np: var(--accent); --np-ink: var(--accent-ink); }
+#now .g { color: var(--np); font-size: 0.8rem; }
 #now .controls { margin-left: auto; display: flex; gap: 8px; flex: none; }
 
 /* Suena algo: borde y fondo verdosos */
-#now.playing { border-color: var(--accent); background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 19%, transparent), var(--panel) 70%); }
-#now.playing #cover { box-shadow: 0 0 0 2px var(--accent); }
+#now.playing { border-color: var(--np); background: linear-gradient(120deg, color-mix(in srgb, var(--np) 19%, transparent), var(--panel) 70%); }
+#now.playing #cover { box-shadow: 0 0 0 2px var(--np); }
+#now #toggle-btn { background: var(--np); color: var(--np-ink); transition: background-color .35s ease, color .35s ease; }
+#now .progress input[type="range"] { accent-color: var(--np); }
 
 /* Al hacer scroll queda fija arriba: fondo al 70 % y desenfoque */
 #now.stuck {
@@ -215,7 +218,7 @@ input[type="range"] { accent-color: var(--accent); cursor: pointer; }
   -webkit-backdrop-filter: blur(12px);
 }
 #now.stuck.playing {
-  background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 20%, transparent), rgba(var(--panel-rgb), 0.7) 70%);
+  background: linear-gradient(120deg, color-mix(in srgb, var(--np) 20%, transparent), rgba(var(--panel-rgb), 0.7) 70%);
 }
 
 /* Barra de progreso */
