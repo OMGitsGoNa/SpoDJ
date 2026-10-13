@@ -363,6 +363,40 @@ input[type="range"] { accent-color: var(--accent); cursor: pointer; }
 button.chip { border: 0; cursor: pointer; font: inherit; font-size: 0.85rem; padding: 4px 12px; }
 button.chip:hover { color: var(--text); background: var(--panel); }
 
+/* ---------- Salvapantallas del reproductor ---------- */
+.screensaver {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.35);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  animation: ss-in .6s ease;
+}
+.screensaver[hidden] { display: none; }
+@keyframes ss-in { from { opacity: 0; } to { opacity: 1; } }
+.ss-close { position: absolute; top: 18px; right: 18px; padding: 4px 12px; font-size: 1.4rem; line-height: 1.2; }
+.ss-card { display: flex; flex-direction: column; align-items: center; gap: 22px; text-align: center; max-width: min(92vw, 720px); color: var(--text); }
+#ss-cover {
+  width: min(70vw, 52vh, 480px);
+  aspect-ratio: 1;
+  border-radius: 18px;
+  object-fit: cover;
+  background: var(--panel-2);
+  box-shadow: 0 30px 80px #000c;
+}
+.ss-artist { display: flex; align-items: center; gap: 14px; }
+#ss-artist-img { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; background: var(--panel-2); flex: none; }
+.ss-artist-text { text-align: left; }
+.ss-name { font-size: 1.4rem; font-weight: 700; }
+.ss-title { font-size: 1.1rem; color: var(--muted); }
+.ss-ctrl { display: flex; gap: 12px; }
+.ss-ctrl button { font-size: 1.4rem; padding: 6px 18px; }
+
 /* ---------- Perfil de artista (panel de la izquierda) ---------- */
 .artist-panel {
   position: fixed;

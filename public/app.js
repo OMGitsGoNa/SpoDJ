@@ -701,6 +701,7 @@ function applyState(st) {
   const paused = Boolean(st.paused);
 
   $('toggle-btn').textContent = paused ? '▶' : '⏸';
+  if (!$('screensaver').hidden) $('ss-toggle').textContent = paused ? '▶' : '⏸';
   $('toggle-btn').title = paused ? 'Reproducir' : 'Pausa';
   $('now').classList.toggle('playing', !paused);
 
@@ -713,6 +714,7 @@ function applyState(st) {
     $('cover').src = t.album.images?.[0]?.url || '';
     applyNowColor(t.album.images?.[0]?.url || '');
     setBgArt(t.album.images?.[0]?.url || '');
+    if (!$('screensaver').hidden) renderScreensaver();
     markPlaying();
     updateNowGenre();
     onTrackChange(t.id);
@@ -1272,6 +1274,68 @@ async function antiBubble(button) {
   }
 }
 
+/* ---------- Salvapantallas del reproductor ---------- */
+// Tras 30 s sin mover el ratón (ni pulsar nada) y con una canción sonando, aparece el reproductor a pantalla completa.
+const IDLE_MS = 30000;
+let lastActivity = Date.now();
+const markActivity = () => { lastActivity = Date.now(); };
+['mousemove', 'pointerdown', 'keydown', 'touchstart', 'wheel'].forEach((ev) =>
+  window.addEventListener(ev, markActivity, { passive: true }));
+
+const artistPhotoCache = new Map();
+async function artistPhotoFor(name, id) {
+  const key = (id || name || '').toLowerCase();
+  if (!name) return '';
+  if (artistPhotoCache.has(key)) return artistPhotoCache.get(key);
+  const top = (state.topArtists || []).find((a) => (id && a.id === id) || a.name.toLowerCase() === name.toLowerCase());
+  let url = top?.images?.[0]?.url || '';
+  if (!url) {
+    try {
+      const found = await apiJson(`/search?${new URLSearchParams({ q: `artist:"${name}"`, type: 'artist', limit: '1' })}`);
+      url = found.artists?.items?.[0]?.images?.[0]?.url || '';
+    } catch { /* sin foto */ }
+  }
+  artistPhotoCache.set(key, url);
+  return url;
+}
+
+function renderScreensaver() {
+  const t = state.trackInfo.get(state.currentId);
+  const main = t?.artists?.[0] || { id: null, name: ($('track-artist').textContent || '').split(',')[0].trim() };
+  $('ss-cover').src = $('cover').src || '';
+  $('ss-title').textContent = $('track-title').textContent;
+  $('ss-artist-name').textContent = main.name || '';
+  $('ss-toggle').textContent = $('toggle-btn').textContent;
+  const img = $('ss-artist-img');
+  img.hidden = true;
+  artistPhotoFor(main.name, main.id).then((url) => {
+    if ($('ss-artist-name').textContent !== (main.name || '')) return; // respuesta vieja
+    img.src = url || '';
+    img.hidden = !url;
+  });
+}
+function openScreensaver() {
+  renderScreensaver();
+  $('screensaver').hidden = false;
+}
+function closeScreensaver() {
+  $('screensaver').hidden = true;
+  lastActivity = Date.now(); // no vuelve a salir hasta otros 30 s sin actividad
+}
+$('ss-close').addEventListener('click', closeScreensaver);
+$('ss-prev').addEventListener('click', () => { state.lastUserAction = Date.now(); player?.previousTrack(); });
+$('ss-toggle').addEventListener('click', () => { state.lastUserAction = Date.now(); player?.togglePlay(); });
+$('ss-next').addEventListener('click', () => { state.lastUserAction = Date.now(); player?.nextTrack(); });
+$('screensaver').addEventListener('click', (event) => {
+  if (event.target === $('screensaver')) markActivity();
+});
+
+setInterval(() => {
+  if (!$('screensaver').hidden) return;
+  const playing = state.lastTick && !state.lastTick.paused;
+  if (playing && Date.now() - lastActivity >= IDLE_MS) openScreensaver();
+}, 1000);
+
 /* ---------- Perfil de artista (panel de la izquierda) ---------- */
 let artistPanelSeq = 0;
 const artistPanelCache = new Map(); // id o nombre -> { at, artist }
@@ -1711,6 +1775,7 @@ document.addEventListener('keydown', (event) => {
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   if (event.key === 'Escape') {
     if (!$('modal').hidden) closeModal();
+    else if (!$('screensaver').hidden) closeScreensaver();
     else closeArtistPanel();
     return;
   }
