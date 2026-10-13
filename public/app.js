@@ -124,6 +124,19 @@ function bumpPlay(id, info = {}) {
   s.days[k] = (s.days[k] || 0) + 1;
   all[id] = s;
   store.set('stats', JSON.stringify(all));
+
+  // Ritmo: escuchas por hora del día y mapa semanal (día de la semana x hora).
+  const r = rhythmData();
+  r.hours = Array.isArray(r.hours) && r.hours.length === 24 ? r.hours : Array(24).fill(0);
+  r.heat = Array.isArray(r.heat) && r.heat.length === 7 ? r.heat : Array.from({ length: 7 }, () => Array(24).fill(0));
+  const now = new Date();
+  r.hours[now.getHours()] += 1;
+  r.heat[(now.getDay() + 6) % 7][now.getHours()] += 1;
+  store.set('rhythm', JSON.stringify(r));
+}
+
+function rhythmData() {
+  try { return JSON.parse(store.get('rhythm') || '{}') || {}; } catch { return {}; }
 }
 
 function statsData() {
@@ -1442,10 +1455,11 @@ function el(tag, cls, text) {
   if (text != null) node.textContent = text;
   return node;
 }
-function openModal(title, fill) {
+function openModal(title, fill, wide = false) {
   $('modal-title').textContent = title;
   const body = $('modal-body');
   body.textContent = '';
+  $('modal').querySelector('.modal-card').classList.toggle('wide', wide);
   fill(body);
   $('modal').hidden = false;
   $('modal-close').focus();
@@ -1483,8 +1497,14 @@ function renderStats(body) {
   });
   body.appendChild(grid);
 
+  const left = el('div', 'stats-col');
+  const right = el('div', 'stats-col');
+  const cols = el('div', 'stats-cols');
+  cols.append(left, right);
+  body.appendChild(cols);
+
   // Últimos 14 días
-  body.appendChild(el('div', 'stats-h', 'Últimos 14 días'));
+  left.appendChild(el('div', 'stats-h', 'Últimos 14 días'));
   const days = [];
   for (let i = 13; i >= 0; i--) {
     const d = new Date();
@@ -1504,10 +1524,10 @@ function renderStats(body) {
     col.appendChild(el('span', 'lbl', d.label));
     bars.appendChild(col);
   });
-  body.appendChild(bars);
+  left.appendChild(bars);
 
   const rank = (title, rows) => {
-    body.appendChild(el('div', 'stats-h', title));
+    right.appendChild(el('div', 'stats-h', title));
     const ol = el('ol', 'rank-list');
     rows.slice(0, 10).forEach((r) => {
       const li = el('li');
@@ -1517,27 +1537,233 @@ function renderStats(body) {
       li.appendChild(nm);
       ol.appendChild(li);
     });
-    body.appendChild(ol);
+    right.appendChild(ol);
   };
   rank('Canciones más reproducidas', [...list].sort((a, b) => b.n - a.n).map((s) => ({ n: s.n, name: s.name, sub: s.artist })));
   rank('Artistas más reproducidos', [...artists].sort((a, b) => b[1] - a[1]).map(([name, n]) => ({ n, name: name || '—' })));
 
+  renderStreak(left, list);
+  renderYear(left, list);
+  renderHourBars(left);
+  renderHeatmap(body);
+
   const foot = el('div', 'modal-foot');
-  const clear = el('button', 'ghost small', 'Borrar estadísticas');
+  const clear = el('button', 'ghost small danger-btn', 'Borrar estadísticas');
   clear.type = 'button';
   clear.addEventListener('click', () => {
     if (!window.confirm('¿Borrar las estadísticas y los contadores de reproducciones de SpoDJ?')) return;
     store.del('stats');
     store.del('plays');
+    store.del('rhythm');
     state.counted = new Set();
-    openModal('Estadísticas', renderStats);
+    openModal('Estadísticas', renderStats, true);
   });
   foot.appendChild(clear);
   body.appendChild(foot);
 }
+/* Ritmo: escuchas por hora y mapa semanal (datos de la clave 'rhythm'). */
+function renderHourBars(body) {
+  const r = rhythmData();
+  if (!Array.isArray(r.hours) || r.hours.length !== 24) return;
+  body.appendChild(el('div', 'stats-h', 'Escuchas por hora'));
+  const max = Math.max(1, ...r.hours);
+  const bars = el('div', 'bars hours');
+  r.hours.forEach((n, h) => {
+    const col = el('div', 'col');
+    col.title = `${String(h).padStart(2, '0')}:00 — ${n} reproducciones`;
+    const fill = el('div', 'fill');
+    fill.style.height = `${Math.round((n / max) * 100)}%`;
+    if (!n) fill.style.opacity = '0.25';
+    col.appendChild(fill);
+    col.appendChild(el('span', 'lbl', h % 3 === 0 ? String(h) : ''));
+    bars.appendChild(col);
+  });
+  body.appendChild(bars);
+}
+
+function renderHeatmap(body) {
+  const r = rhythmData();
+  if (!Array.isArray(r.heat) || r.heat.length !== 7) return;
+  body.appendChild(el('div', 'stats-h', 'Mapa semanal (día × hora)'));
+  const dayNames = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+  const max = Math.max(1, ...r.heat.flat());
+  const grid = el('div', 'heat');
+  dayNames.forEach((dn, di) => {
+    grid.appendChild(el('span', 'hl', dn));
+    for (let h = 0; h < 24; h++) {
+      const v = (r.heat[di] && r.heat[di][h]) || 0;
+      const cell = el('i', 'hc');
+      cell.style.opacity = v ? String(0.15 + (0.85 * v) / max) : '0.06';
+      cell.title = `${dn} ${String(h).padStart(2, '0')}:00 — ${v}`;
+      grid.appendChild(cell);
+    }
+  });
+  body.appendChild(grid);
+}
+
+/* Racha: días consecutivos con alguna reproducción. */
+function dayNum(key) {
+  const [y, m, d] = key.split('-').map(Number);
+  return Math.round(Date.UTC(y, m - 1, d) / 86400000);
+}
+function keyFromNum(n) {
+  const d = new Date(n * 86400000);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+function playedDays(list) {
+  const set = new Set();
+  list.forEach((s) => Object.entries(s.days || {}).forEach(([k, v]) => { if (v > 0) set.add(k); }));
+  return set;
+}
+function renderStreak(body, list) {
+  const set = playedDays(list);
+  if (!set.size) return;
+  const nums = [...set].map(dayNum).sort((a, b) => a - b);
+  let longest = 1;
+  let run = 1;
+  for (let i = 1; i < nums.length; i++) {
+    run = nums[i] === nums[i - 1] + 1 ? run + 1 : 1;
+    longest = Math.max(longest, run);
+  }
+  const today = dayNum(dayKey(new Date()));
+  // La racha actual puede empezar hoy o ayer (si hoy aún no hay escuchas).
+  let start = set.has(keyFromNum(today)) ? today : today - 1;
+  let current = 0;
+  while (set.has(keyFromNum(start - current))) current++;
+
+  body.appendChild(el('div', 'stats-h', 'Racha'));
+  const row = el('div', 'stat-grid streak-row');
+  [[current, 'días seguidos ahora'], [longest, 'racha más larga'], [set.size, 'días con música']].forEach(([value, label]) => {
+    const box = el('div', 'stat');
+    box.appendChild(el('b', null, String(value)));
+    box.appendChild(el('span', null, label));
+    row.appendChild(box);
+  });
+  body.appendChild(row);
+}
+
+/* Año en SpoDJ: resumen de un año, descargable como imagen. */
+function yearStats(list, year) {
+  const prefix = `${year}-`;
+  const rows = list.map((s) => {
+    let n = 0;
+    Object.entries(s.days || {}).forEach(([k, v]) => { if (k.startsWith(prefix)) n += v; });
+    return { name: s.name || '—', artist: s.artist || '—', n, ms: n * (s.ms || 0) };
+  }).filter((r) => r.n > 0);
+  const artists = new Map();
+  rows.forEach((r) => artists.set(r.artist, (artists.get(r.artist) || 0) + r.n));
+  const activeDays = [...playedDays(list)].filter((k) => k.startsWith(prefix)).length;
+  return {
+    plays: rows.reduce((sum, r) => sum + r.n, 0),
+    ms: rows.reduce((sum, r) => sum + r.ms, 0),
+    tracks: [...rows].sort((a, b) => b.n - a.n).slice(0, 5),
+    artists: [...artists].sort((a, b) => b[1] - a[1]).slice(0, 5),
+    distinct: rows.length,
+    activeDays,
+  };
+}
+function formatHM(ms) {
+  return `${Math.floor(ms / 3600000)} h ${Math.floor((ms % 3600000) / 60000)} min`;
+}
+function renderYear(body, list) {
+  const years = [...new Set([...playedDays(list)].map((k) => k.slice(0, 4)))].sort().reverse();
+  if (!years.length) return;
+  body.appendChild(el('div', 'stats-h', 'Resumen anual'));
+  const head = el('div', 'year-head');
+  const select = el('select');
+  years.forEach((y) => select.appendChild(el('option', null, y)));
+  const box = el('div');
+  const draw = () => {
+    box.textContent = '';
+    fillYear(box, list, select.value);
+  };
+  select.addEventListener('change', draw);
+  head.appendChild(select);
+  body.appendChild(head);
+  body.appendChild(box);
+  draw();
+}
+function fillYear(box, list, year) {
+  const y = yearStats(list, year);
+  if (!y.plays) {
+    box.appendChild(el('p', 'sub', `No hay reproducciones registradas en ${year}.`));
+    return;
+  }
+  const grid = el('div', 'stat-grid');
+  [[y.plays, 'reproducciones'], [y.distinct, 'canciones distintas'], [y.activeDays, 'días con música'], [formatHM(y.ms), 'escuchando']].forEach(([value, label]) => {
+    const s = el('div', 'stat');
+    s.appendChild(el('b', null, String(value)));
+    s.appendChild(el('span', null, label));
+    grid.appendChild(s);
+  });
+  box.appendChild(grid);
+  const ol = el('ol', 'rank-list');
+  y.tracks.forEach((r) => {
+    const li = el('li');
+    li.appendChild(el('span', 'n', `${r.n}×`));
+    const nm = el('span', 'nm', r.name);
+    nm.appendChild(el('small', null, `  ${r.artist}`));
+    li.appendChild(nm);
+    ol.appendChild(li);
+  });
+  box.appendChild(ol);
+}
+function downloadYearCard(list, year) {
+  const y = yearStats(list, year);
+  if (!y.plays) return;
+  const c = document.createElement('canvas');
+  c.width = 1080;
+  c.height = 1350;
+  const ctx = c.getContext('2d');
+  const bg = ctx.createLinearGradient(0, 0, 1080, 1350);
+  bg.addColorStop(0, '#0f1115');
+  bg.addColorStop(1, '#2a1f3d');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, 1080, 1350);
+  ctx.fillStyle = '#1ed760';
+  ctx.font = 'bold 56px sans-serif';
+  ctx.fillText(`Mi ${year} en SpoDJ`, 80, 130);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 120px sans-serif';
+  ctx.fillText(String(y.plays), 80, 300);
+  ctx.font = '40px sans-serif';
+  ctx.fillStyle = '#bbbbbb';
+  ctx.fillText('reproducciones', 80, 355);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '48px sans-serif';
+  ctx.fillText(`${y.distinct} canciones distintas · ${y.activeDays} días con música`, 80, 430);
+  ctx.fillText(`${formatHM(y.ms)} escuchando`, 80, 490);
+
+  const section = (title, y0, rows) => {
+    ctx.fillStyle = '#1ed760';
+    ctx.font = 'bold 44px sans-serif';
+    ctx.fillText(title, 80, y0);
+    ctx.font = '38px sans-serif';
+    rows.forEach((text, i) => {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(text, 80, y0 + 70 + i * 62);
+    });
+  };
+  const trim = (t) => (t.length > 40 ? `${t.slice(0, 39)}…` : t);
+  section('Top canciones', 600, y.tracks.map((r) => `${r.n}×  ${trim(r.name)} — ${trim(r.artist)}`));
+  section('Top artistas', 1040, y.artists.map(([name, n]) => `${n}×  ${trim(name)}`));
+  ctx.fillStyle = '#888888';
+  ctx.font = '30px sans-serif';
+  ctx.fillText('SpoDJ', 80, 1280);
+
+  c.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `spodj-${year}.png`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+}
+
 $('open-stats').addEventListener('click', () => {
   toggleProfileMenu(false);
-  openModal('Estadísticas', renderStats);
+  openModal('Estadísticas', renderStats, true);
 });
 
 /* ---------- Atajos de teclado ---------- */
