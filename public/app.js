@@ -8,6 +8,7 @@ const SCOPES = [
   'user-read-playback-state',
   'user-modify-playback-state',
   'user-top-read',
+  'user-library-read',
   'user-read-recently-played',
 ].join(' ');
 const AUTH_URL = 'https://accounts.spotify.com/authorize';
@@ -816,6 +817,41 @@ function renderQueue() {
     box.appendChild(row);
   });
 }
+// Ruleta de lo olvidado: una canción de TU BIBLIOTECA de Spotify (canciones guardadas)
+// que no está entre tus últimas reproducciones. Spotify no dice cuándo escuchaste cada canción
+// guardada, así que "olvidada" = no aparece en tus últimas 50 reproducciones.
+// Son 2 o 3 peticiones a Spotify por pulsación.
+async function pickFromLibrary() {
+  setStatus('Buscando en tu biblioteca de Spotify…');
+  try {
+    const first = await apiJson('/me/tracks?limit=1');
+    const total = first.total || 0;
+    if (!total) {
+      setStatus('Tu biblioteca de Spotify está vacía.', true);
+      return;
+    }
+    let found = null;
+    for (let attempt = 0; attempt < 2 && !found; attempt++) {
+      const offset = Math.floor(Math.random() * total);
+      const page = await apiJson(`/me/tracks?${new URLSearchParams({ limit: '1', offset: String(offset) })}`);
+      const t = page.items?.[0]?.track;
+      if (t && t.is_playable !== false && !state.recentIds.has(t.id) && t.id !== state.currentId) found = t;
+    }
+    if (!found) {
+      setStatus('No he encontrado una canción olvidada. Vuelve a pulsar la ruleta.', true);
+      return;
+    }
+    rememberTrack(found);
+    setStatus(`Ruleta: ${found.name} · ${(found.artists || []).map((a) => a.name).join(', ')}`);
+    playUris([found.uri]);
+  } catch (err) {
+    setStatus(err.status === 429
+      ? 'Spotify ha limitado las peticiones. Vuelve a intentarlo en un rato.'
+      : (err.message || 'No se ha podido buscar en tu biblioteca.'), true);
+  }
+}
+$('roulette-btn').addEventListener('click', pickFromLibrary);
+
 $('queue-clear').addEventListener('click', () => {
   state.queue = [];
   saveQueue();

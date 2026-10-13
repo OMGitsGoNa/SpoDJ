@@ -627,3 +627,6 @@ html.ss-open, html.ss-open body { overflow: hidden; }
 /* Botón "+" para añadir a la cola desde una fila */
 .track-row .q-add { flex: none; margin-left: auto; padding: 0 8px; border-radius: 6px; color: var(--muted); font-size: 1.2rem; line-height: 1.4; }
 .track-row .q-add:hover { color: var(--accent); background: var(--panel-2); }
+
+/* Ruleta de lo olvidado */
+.roulette-row { margin-bottom: 8px; }
