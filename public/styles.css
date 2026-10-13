@@ -72,12 +72,12 @@ body {
 .columns > .card { min-width: 0; }
 
 @media (min-width: 1000px) {
-  .columns { grid-template-columns: minmax(0, 1.2fr) minmax(260px, 1fr); }
+  .columns { grid-template-columns: minmax(0, 1fr) minmax(240px, 300px); }
 }
 
 .app {
   width: 100%;
-  max-width: 2200px; /* casi toda la pantalla; solo se limita en monitores muy anchos */
+  max-width: 1400px; /* la web ocupa menos ancho; el resto queda como margen */
   padding: 20px clamp(12px, 2.5vw, 40px) 40px; /* márgenes que crecen con la pantalla */
   display: flex;
   flex-direction: column;
@@ -121,7 +121,7 @@ button.swatch {
 button.swatch[aria-pressed="true"] { border-color: var(--text); box-shadow: 0 0 0 2px var(--bg); }
 
 /* ---------- Perfil (desplegable) ---------- */
-.profile-wrap { position: relative; }
+.profile-wrap { position: relative; z-index: 60; }
 .profile-btn { display: flex; align-items: center; gap: 8px; padding: 4px 12px 4px 4px; }
 .profile-btn img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; background: var(--panel); }
 .profile-menu {
@@ -130,7 +130,7 @@ button.swatch[aria-pressed="true"] { border-color: var(--text); box-shadow: 0 0 
   position: absolute;
   top: calc(100% + 8px);
   left: 0;
-  z-index: 10;
+  z-index: 60;
   min-width: 200px;
   background: var(--panel);
   border-radius: 12px;
@@ -630,3 +630,15 @@ html.ss-open, html.ss-open body { overflow: hidden; }
 
 /* Ruleta de lo olvidado */
 .roulette-row { margin-bottom: 8px; }
+
+
+/* Top de canciones en dos columnas de 10 (de arriba abajo, luego la segunda columna) */
+@media (min-width: 560px) {
+  #top-list {
+    display: grid;
+    grid-template-rows: repeat(10, auto);
+    grid-auto-flow: column;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 20px;
+  }
+}

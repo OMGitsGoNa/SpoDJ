@@ -842,8 +842,14 @@ async function pickFromLibrary() {
       return;
     }
     rememberTrack(found);
-    setStatus(`Ruleta: ${found.name} · ${(found.artists || []).map((a) => a.name).join(', ')}`);
-    playUris([found.uri]);
+    // Si ya suena algo, la canción va a la cola; si no, empieza a sonar.
+    const sounding = Boolean(state.lastTick && !state.lastTick.paused);
+    if (sounding) {
+      addToQueue(found);
+    } else {
+      setStatus(`Ruleta: ${found.name} · ${(found.artists || []).map((a) => a.name).join(', ')}`);
+      playUris([found.uri]);
+    }
   } catch (err) {
     setStatus(err.status === 429
       ? 'Spotify ha limitado las peticiones. Vuelve a intentarlo en un rato.'
@@ -900,6 +906,8 @@ function buildMix() {
   if (wasEmpty) playQueueNext(); // si la cola estaba vacía, empieza a sonar
 }
 $('mix-btn').addEventListener('click', buildMix);
+
+
 
 $('queue-clear').addEventListener('click', () => {
   state.queue = [];
@@ -2084,11 +2092,17 @@ $('ap-close').addEventListener('click', closeArtistPanel);
 // Cajón de cola e historial (lado derecho).
 function openQueue() {
   $('queue-panel').classList.add('open');
+  $('open-queue').setAttribute('aria-pressed', 'true');
 }
 function closeQueue() {
   $('queue-panel').classList.remove('open');
+  $('open-queue').setAttribute('aria-pressed', 'false');
 }
-$('open-queue').addEventListener('click', openQueue);
+// Igual que el botón de repetir: se queda marcado mientras el cajón está abierto; otro clic lo cierra.
+$('open-queue').addEventListener('click', () => {
+  if ($('queue-panel').classList.contains('open')) closeQueue();
+  else openQueue();
+});
 $('queue-close').addEventListener('click', closeQueue);
 $('track-artist').addEventListener('click', () => {
   const t = state.trackInfo.get(state.currentId);
