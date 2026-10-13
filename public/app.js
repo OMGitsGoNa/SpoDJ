@@ -1317,6 +1317,23 @@ async function openArtistPanel(name, id = null) {
   }
 }
 
+// Spotify no da los "oyentes mensuales"; Last.fm sí da sus oyentes, que es lo que mostramos.
+async function loadArtistListeners(name) {
+  const value = $('ap-listeners');
+  if (!value) return;
+  try {
+    const res = await fetch(`/api/artist-stats?${new URLSearchParams({ artist: name })}`);
+    const data = await res.json();
+    // Si el panel ya muestra otro artista, esta respuesta llega tarde y no se pinta
+    if ($('ap-listeners') !== value) return;
+    if (data.configured === false) value.textContent = 'Falta LASTFM_API_KEY';
+    else if (data.error) value.textContent = '—';
+    else value.textContent = Number(data.listeners || 0).toLocaleString('es-ES');
+  } catch {
+    value.textContent = '—';
+  }
+}
+
 function renderArtistInfo(artist, top, name) {
   const img = $('ap-img');
   const pic = artist.images?.[0]?.url || top?.images?.[0]?.url || '';
@@ -1330,25 +1347,25 @@ function renderArtistInfo(artist, top, name) {
   info.textContent = '';
   const grid = el('div', 'stat-grid');
   const followers = artist.followers?.total;
-  [[followers != null ? followers.toLocaleString('es-ES') : '—', 'seguidores en Spotify'],
-   [artist.popularity != null ? `${artist.popularity} / 100` : '—', 'popularidad']].forEach(([value, label]) => {
-    const box = el('div', 'stat');
-    box.appendChild(el('b', null, String(value)));
-    box.appendChild(el('span', null, label));
-    grid.appendChild(box);
-  });
+  const listenersBox = el('div', 'stat');
+  const listenersValue = el('b', null, '…');
+  listenersValue.id = 'ap-listeners';
+  listenersBox.append(listenersValue, el('span', null, 'Oyentes (Last.fm)'));
+  const followersBox = el('div', 'stat');
+  followersBox.append(
+    el('b', null, followers != null ? followers.toLocaleString('es-ES') : '—'),
+    el('span', null, 'Seguidores en Spotify'),
+  );
+  grid.append(followersBox, listenersBox);
   info.appendChild(grid);
+  loadArtistListeners(name);
 
   const url = artist.external_urls?.spotify;
   if (url) {
-    const link = el('a', 'ghost small', 'Abrir perfil en Spotify');
+    const link = el('a', 'ap-link', 'Abrir perfil en Spotify');
     link.href = url;
     link.target = '_blank';
     link.rel = 'noopener';
-    link.style.display = 'inline-block';
-    link.style.padding = '6px 12px';
-    link.style.borderRadius = '999px';
-    link.style.textDecoration = 'none';
     info.appendChild(link);
   }
 }

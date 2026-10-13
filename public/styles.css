@@ -400,6 +400,20 @@ button.chip:hover { color: var(--text); background: var(--panel); }
 }
 .panel-row:hover { background: var(--panel-2); }
 .panel-row .sub { font-size: 0.8rem; }
+.ap-link {
+  display: inline-block;
+  margin-top: 14px;
+  padding: 10px 20px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+  text-decoration: none;
+  transition: filter .2s ease, transform .2s ease;
+}
+.ap-link:hover { filter: brightness(1.1); transform: translateY(-1px); }
+.ap-link:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
+
 #track-artist { cursor: pointer; }
 #track-artist:hover { text-decoration: underline; }
 

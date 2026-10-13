@@ -107,6 +107,40 @@ app.get('/api/artist-info', async (req, res) => {
   }
 });
 
+// Oyentes y reproducciones totales de un artista en Last.fm
+const artistStatsCache = new Map();
+app.get('/api/artist-stats', async (req, res) => {
+  const artist = String(req.query.artist || '').trim().slice(0, 120);
+  if (!artist) return res.json({ configured: Boolean(LASTFM_KEY) });
+  if (!LASTFM_KEY) return res.json({ configured: false });
+  const key = artist.toLowerCase();
+  if (artistStatsCache.has(key)) return res.json({ configured: true, ...artistStatsCache.get(key) });
+
+  try {
+    const params = new URLSearchParams({
+      method: 'artist.getinfo',
+      artist,
+      autocorrect: '1',
+      api_key: LASTFM_KEY,
+      format: 'json',
+    });
+    const response = await fetch(`https://ws.audioscrobbler.com/2.0/?${params}`);
+    const data = await response.json();
+    if (data.error && data.error !== 6) {
+      return res.json({ configured: true, error: true, message: data.message });
+    }
+    const stats = {
+      listeners: Number(data.artist?.stats?.listeners) || 0,
+      playcount: Number(data.artist?.stats?.playcount) || 0,
+    };
+    artistStatsCache.set(key, stats);
+    res.json({ configured: true, ...stats });
+  } catch (err) {
+    console.error('Last.fm no responde:', err?.message);
+    res.json({ configured: true, error: true });
+  }
+});
+
 // Artistas más escuchados de una etiqueta (género), para la sección "anti burbuja"
 const tagArtistCache = new Map();
 app.get('/api/tag-artists', async (req, res) => {
