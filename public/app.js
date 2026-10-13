@@ -1094,6 +1094,37 @@ async function findSpotifyTrack(title, artistName) {
   return items.find((t) => (t.artists || []).some((a) => a.name.toLowerCase() === wanted)) || null;
 }
 
+// Tema aleatorio entre TODAS las canciones del artista en Spotify (no solo las cargadas).
+// Spotify limita la búsqueda a 1000 resultados, así que elegimos una posición al azar en ese rango.
+async function randomArtistTrack(name, button) {
+  button.disabled = true;
+  const wanted = name.toLowerCase();
+  try {
+    const q = `artist:"${name}"`;
+    const first = await apiJson(`/search?${new URLSearchParams({ q, type: 'track', limit: '1', market: 'from_token' })}`);
+    const total = Math.min(first.tracks?.total || 0, 1000);
+    if (!total) {
+      setStatus(`No encuentro canciones de ${name} en Spotify.`, true);
+      return;
+    }
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const offset = Math.floor(Math.random() * total);
+      const data = await apiJson(`/search?${new URLSearchParams({ q, type: 'track', limit: '1', offset: String(offset), market: 'from_token' })}`);
+      const t = (data.tracks?.items || [])[0];
+      if (t && t.is_playable !== false && (t.artists || []).some((a) => a.name.toLowerCase() === wanted)) {
+        setStatus(`Tema aleatorio de ${name}: ${t.name}`);
+        playUris([t.uri]);
+        return;
+      }
+    }
+    setStatus(`No he conseguido un tema aleatorio de ${name}. Prueba otra vez.`, true);
+  } catch (err) {
+    setStatus(err.message || 'No se ha podido buscar el tema aleatorio.', true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function loadArtistRecs(name, id = null) {
   if (!name) return;
   const loadId = ++state.recLoad;
@@ -1113,14 +1144,14 @@ async function loadArtistRecs(name, id = null) {
     if (loadId !== state.recLoad) return;
 
     const tracks = [];
-    for (const item of (top.items || []).slice(0, 8)) {
+    for (const item of (top.items || []).slice(0, 14)) {
       const found = await findSpotifyTrack(item.name, item.artist || name).catch(() => null);
       if (loadId !== state.recLoad) return;
       if (found && !tracks.some((t) => t.id === found.id)) {
         rememberTrack(found);
         tracks.push(found);
       }
-      if (tracks.length >= 5) break;
+      if (tracks.length >= 10) break;
     }
 
     let note = '';
@@ -1266,6 +1297,16 @@ function renderRecs() {
     list.appendChild(trackRow(track, i + 1, () => playUris(r.tracks.slice(i).map((t) => t.uri))));
   });
   box.appendChild(list);
+
+  // Tema aleatorio de este artista, debajo de la lista
+  const random = document.createElement('button');
+  random.type = 'button';
+  random.className = 'ghost small';
+  random.textContent = '🔀 Tema aleatorio';
+  random.style.marginTop = '8px';
+  random.disabled = r.loading || !r.tracks.length;
+  random.addEventListener('click', () => randomArtistTrack(r.name, random));
+  box.appendChild(random);
 
   if (r.similar && r.similar.length) {
     const sub = document.createElement('h3');
