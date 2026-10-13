@@ -40,6 +40,8 @@ const state = {
   topArtists: [],
   genres: [],
   recentIds: new Set(),
+  queue: [],            // cola propia: { id, uri, name, artists }
+  queueFiredId: null,   // canción para la que ya se ha lanzado el salto de la cola
   heard: new Set(),
   knownArtistIds: new Set(),
   lastTrackId: null,
@@ -545,6 +547,19 @@ function trackRow(track, rank, onClick) {
   meta.append(tt, ta, tg);
   btn.appendChild(meta);
 
+  // Botón "+": añade la canción a la cola sin reproducirla.
+  const add = document.createElement('span');
+  add.className = 'q-add';
+  add.setAttribute('role', 'button');
+  add.setAttribute('aria-label', 'Añadir a la cola');
+  add.title = 'Añadir a la cola';
+  add.textContent = '+';
+  add.addEventListener('click', (event) => {
+    event.stopPropagation();
+    addToQueue(track);
+  });
+  btn.appendChild(add);
+
   const dur = document.createElement('span');
   dur.className = 'dur';
   dur.textContent = fmtTime(track.duration_ms);
@@ -712,6 +727,100 @@ function checkRepeat(t, st, paused) {
   state.repeatFiredId = t.id;
   playUris([`spotify:track:${t.id}`]);
 }
+
+/* ---------- Cola de reproducción ---------- */
+// Cola propia de SpoDJ: cuando la canción actual está a punto de acabar (y repetir no está activo),
+// se pone la siguiente de la cola. Así no sale la que Spotify tenga después.
+function readQueue() {
+  try {
+    const list = JSON.parse(store.get('queue') || '[]');
+    return Array.isArray(list) ? list.filter((x) => x && x.uri) : [];
+  } catch {
+    return [];
+  }
+}
+function saveQueue() {
+  store.set('queue', JSON.stringify(state.queue));
+}
+function addToQueue(track) {
+  if (!track?.uri) return;
+  state.queue.push({
+    id: track.id,
+    uri: track.uri,
+    name: track.name,
+    artists: (track.artists || []).map((a) => a.name).join(', '),
+  });
+  saveQueue();
+  renderQueue();
+  setStatus(`Añadida a la cola: ${track.name}`);
+}
+function removeFromQueue(index) {
+  state.queue.splice(index, 1);
+  saveQueue();
+  renderQueue();
+}
+function moveInQueue(index, delta) {
+  const target = index + delta;
+  if (target < 0 || target >= state.queue.length) return;
+  [state.queue[index], state.queue[target]] = [state.queue[target], state.queue[index]];
+  saveQueue();
+  renderQueue();
+}
+// Pone la siguiente canción de la cola y la quita de la lista.
+function playQueueNext() {
+  const next = state.queue.shift();
+  if (!next) return;
+  saveQueue();
+  renderQueue();
+  playUris([next.uri]);
+}
+function checkQueue(t, st, paused) {
+  if (!t?.id || !st.duration || !state.queue.length) return;
+  if (st.position < st.duration - 3000) { state.queueFiredId = null; return; }
+  if (state.repeatOne || paused || st.position >= st.duration) return; // repetir tiene prioridad
+  if (state.queueFiredId === t.id) return;
+  state.queueFiredId = t.id;
+  playQueueNext();
+}
+function renderQueue() {
+  const box = $('queue-list');
+  if (!box) return;
+  box.textContent = '';
+  if (!state.queue.length) {
+    box.appendChild(emptyNote('La cola está vacía. Pulsa + en cualquier canción para añadirla.'));
+    return;
+  }
+  state.queue.forEach((item, i) => {
+    const row = el('div', 'queue-row');
+    const main = el('button', 'qr-main');
+    main.type = 'button';
+    main.title = 'Reproducir ahora';
+    main.append(el('b', null, item.name), el('span', null, item.artists));
+    main.addEventListener('click', () => {
+      state.queue.splice(i, 1);
+      saveQueue();
+      renderQueue();
+      playUris([item.uri]);
+    });
+    const btns = el('div', 'qr-btns');
+    [['↑', 'Subir', () => moveInQueue(i, -1)], ['↓', 'Bajar', () => moveInQueue(i, 1)], ['✕', 'Quitar', () => removeFromQueue(i)]]
+      .forEach(([text, label, action]) => {
+        const b = el('button', 'ghost small', text);
+        b.type = 'button';
+        b.title = label;
+        b.setAttribute('aria-label', label);
+        b.addEventListener('click', action);
+        btns.appendChild(b);
+      });
+    row.append(main, btns);
+    box.appendChild(row);
+  });
+}
+$('queue-clear').addEventListener('click', () => {
+  state.queue = [];
+  saveQueue();
+  renderQueue();
+});
 
 /* ---------- Continuar donde lo dejaste ---------- */
 // Guarda la canción y la posición cada 5 s (y al pausar), en el navegador.
@@ -893,6 +1002,8 @@ window.addEventListener('online', () => {
 });
 
 const initUi = () => {
+  state.queue = readQueue();
+  renderQueue();
   renderNotifyBtn();
   renderResume();
   const savedBg = Number(store.get('bg_level'));
@@ -946,6 +1057,7 @@ function applyState(st) {
   state.posBase = { position: st.position || 0, duration: st.duration || 0, paused, at: Date.now() };
   saveResume(t, st, paused);
   checkRepeat(t, st, paused);
+  checkQueue(t, st, paused);
   updateFavicon(st.position || 0, st.duration || 0, paused);
 
   state.lastTick = { id: t.id, position: st.position || 0, duration: st.duration || 0, paused };
@@ -1334,7 +1446,7 @@ const userControl = (action) => () => {
 };
 $('prev-btn').addEventListener('click', userControl(() => player?.previousTrack()));
 $('toggle-btn').addEventListener('click', userControl(() => player?.togglePlay()));
-$('next-btn').addEventListener('click', userControl(() => player?.nextTrack()));
+$('next-btn').addEventListener('click', userControl(() => (state.queue.length ? playQueueNext() : player?.nextTrack())));
 
 // Repetir la canción actual: solo marca el botón. Al acercarse al final, checkRepeat decide.
 $('repeat-btn').addEventListener('click', userControl(() => {
@@ -1962,7 +2074,7 @@ function setupMediaActions() {
   act('play', () => { state.lastUserAction = Date.now(); player?.resume(); });
   act('pause', () => { state.lastUserAction = Date.now(); player?.pause(); });
   act('previoustrack', () => { state.lastUserAction = Date.now(); player?.previousTrack(); });
-  act('nexttrack', () => { state.lastUserAction = Date.now(); player?.nextTrack(); });
+  act('nexttrack', () => { state.lastUserAction = Date.now(); if (state.queue.length) playQueueNext(); else player?.nextTrack(); });
   act('seekto', (details) => {
     if (details.seekTime == null) return;
     state.lastUserAction = Date.now();
