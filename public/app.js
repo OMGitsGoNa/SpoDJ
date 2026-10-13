@@ -750,6 +750,7 @@ function addToQueue(track) {
     uri: track.uri,
     name: track.name,
     artists: (track.artists || []).map((a) => a.name).join(', '),
+    image: track.album?.images?.at(-1)?.url || '',
   });
   saveQueue();
   renderQueue();
@@ -813,6 +814,12 @@ function renderQueue() {
         b.addEventListener('click', action);
         btns.appendChild(b);
       });
+    if (item.image) {
+      const cover = el('img', 'qr-cover');
+      cover.src = item.image;
+      cover.alt = '';
+      row.appendChild(cover);
+    }
     row.append(main, btns);
     box.appendChild(row);
   });
@@ -875,6 +882,7 @@ function buildMix() {
       uri: t.uri,
       name: t.name,
       artists: artists.join(', '),
+      image: t.album?.images?.at(-1)?.url || '',
       artist: (artists[0] || '').toLowerCase(),
     });
   };
@@ -1097,6 +1105,7 @@ window.addEventListener('online', () => {
 const initUi = () => {
   state.queue = readQueue();
   renderQueue();
+  openQueue(); // el cajón de cola e historial empieza abierto
   renderNotifyBtn();
   renderResume();
   const savedBg = Number(store.get('bg_level'));
@@ -1576,7 +1585,6 @@ $('fade-len').addEventListener('input', () => {
   renderFadeControls();
 });
 
-$('logout-btn').addEventListener('click', () => logout('Has cerrado sesión.'));
 
 // Menú de perfil
 $('profile-btn').addEventListener('click', (event) => {

@@ -144,20 +144,15 @@ button.swatch[aria-pressed="true"] { border-color: var(--text); box-shadow: 0 0 
 .profile-menu button { width: 100%; }
 
 /* Botones de cerrar sesión: transición suave hacia el rojo al pasar el ratón y al quitarlo */
-#logout-btn,
 #profile-logout {
   transition: background-color 0.35s ease, color 0.35s ease;
 }
 
-#logout-btn:hover,
-#logout-btn:focus-visible,
 #profile-logout:hover,
 #profile-logout:focus-visible,
 .danger-btn {
   transition: background-color 0.35s ease, color 0.35s ease;
 }
-#logout-btn:hover,
-#logout-btn:focus-visible,
 #profile-logout:hover,
 #profile-logout:focus-visible,
 .danger-btn:hover,
@@ -642,3 +637,6 @@ html.ss-open, html.ss-open body { overflow: hidden; }
     column-gap: 20px;
   }
 }
+
+/* Portada en la cola */
+.queue-row .qr-cover { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; flex: none; background: var(--panel-2); }
