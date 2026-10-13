@@ -141,36 +141,6 @@ app.get('/api/artist-stats', async (req, res) => {
   }
 });
 
-// Artistas más escuchados de una etiqueta (género), para la sección "anti burbuja"
-const tagArtistCache = new Map();
-app.get('/api/tag-artists', async (req, res) => {
-  const tag = String(req.query.tag || '').trim().toLowerCase().slice(0, 60);
-  if (!tag) return res.json({ items: [], configured: Boolean(LASTFM_KEY) });
-  if (!LASTFM_KEY) return res.json({ items: [], configured: false });
-  if (tagArtistCache.has(tag)) return res.json({ items: tagArtistCache.get(tag), configured: true });
-
-  try {
-    const params = new URLSearchParams({
-      method: 'tag.gettopartists',
-      tag,
-      limit: '10',
-      api_key: LASTFM_KEY,
-      format: 'json',
-    });
-    const response = await fetch(`https://ws.audioscrobbler.com/2.0/?${params}`);
-    const data = await response.json();
-    if (data.error && data.error !== 6) {
-      return res.json({ items: [], configured: true, error: true, message: data.message });
-    }
-    const items = (data.topartists?.artist || []).map((a) => ({ name: String(a.name || '') })).filter((a) => a.name);
-    tagArtistCache.set(tag, items);
-    res.json({ items, configured: true });
-  } catch (err) {
-    console.error('Last.fm no responde:', err?.message);
-    res.json({ items: [], configured: true, error: true });
-  }
-});
-
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.listen(PORT, HOST, () => {

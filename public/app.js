@@ -310,49 +310,56 @@ async function getToken() {
   return store.get('access_token');
 }
 
+// Cola de peticiones a Spotify: una cada vez, con una pausa mínima entre ellas.
+// Así no se acumulan peticiones en paralelo y no superamos el límite de la cuenta de desarrollo
+// (Spotify no publica la cifra exacta; usa una ventana móvil de 30 s y devuelve 429 al pasarse).
+const SPOTIFY_GAP_MS = 300; // ~100 peticiones por ventana de 30 s como máximo
+const spotifyQueue = { tail: Promise.resolve(), last: 0 };
+function enqueueSpotify(task) {
+  const run = spotifyQueue.tail.then(async () => {
+    const wait = Math.max(spotifyQueue.last + SPOTIFY_GAP_MS - Date.now(), 0);
+    if (wait > 0) await sleep(wait);
+    spotifyQueue.last = Date.now();
+    return task();
+  });
+  spotifyQueue.tail = run.catch(() => {}); // un fallo no bloquea la cola
+  return run;
+}
+
 async function api(path, options = {}) {
   const token = await getToken();
-  return fetch(`${API}${path}`, {
+  return enqueueSpotify(() => fetch(`${API}${path}`, {
     ...options,
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
       ...(options.headers || {}),
     },
-  });
+  }));
 }
 
 // GET con reintento si Spotify limita las peticiones y mensajes de error claros.
 async function apiJson(path) {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const res = await api(path);
-    if (res.status === 429 && attempt === 0) {
-      const wait = Math.min(Number(res.headers.get('Retry-After')) || 2, 10);
-      await sleep(wait * 1000);
-      continue;
-    }
-    if (res.status === 401) {
-      logout('Tu sesión ha caducado. Conéctate de nuevo.');
-      throw new Error('Sesión caducada');
-    }
-    if (res.status === 403) {
-      throw new Error('Spotify ha denegado el acceso (403). Revisa que tu cuenta esté en "User management" de tu app del Dashboard.');
-    }
-    if (res.status === 429) {
-      const err = new Error('Spotify está limitando las peticiones. Espera un minuto y vuelve a intentarlo.');
-      err.status = 429;
-      throw err;
-    }
-    if (!res.ok) {
-      const err = new Error(`Spotify respondió con un error (${res.status}).`);
-      err.status = res.status;
-      throw err;
-    }
-    return res.json();
+  const res = await api(path);
+  if (res.status === 401) {
+    logout('Tu sesión ha caducado. Conéctate de nuevo.');
+    throw new Error('Sesión caducada');
   }
-  const err = new Error('Spotify está limitando las peticiones. Espera un minuto y pulsa Actualizar.');
-  err.status = 429;
-  throw err;
+  if (res.status === 403) {
+    throw new Error('Spotify ha denegado el acceso (403). Revisa que tu cuenta esté en "User management" de tu app del Dashboard.');
+  }
+  if (res.status === 429) {
+    console.warn('[SpoDJ] 429 en', path, '| Retry-After:', res.headers.get('Retry-After'));
+    const err = new Error('Spotify ha limitado las peticiones. Pulsa Reintentar en un momento.');
+    err.status = 429;
+    throw err;
+  }
+  if (!res.ok) {
+    const err = new Error(`Spotify respondió con un error (${res.status}).`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.json();
 }
 
 function logout(message) {
@@ -664,9 +671,7 @@ async function loadAll() {
 
     if (myLoad === state.loadId) setStatus('');
     refreshGenres();
-    if (!state.currentId && state.topArtists[0]) {
-      loadArtistRecs(state.topArtists[0].name, state.topArtists[0].id);
-    }
+    // Sin canción sonando no cargamos recomendaciones: se piden al reproducir algo.
   } catch (err) {
     if (myLoad === state.loadId) setStatus(err.message, true);
   }
@@ -1093,7 +1098,9 @@ async function artistInfo(name, kind) {
 }
 
 async function findSpotifyTrack(title, artistName) {
-  const q = `track:"${title}" artist:"${artistName}"`;
+  // Las comillas dentro del título o del artista rompen la búsqueda de Spotify
+  const clean = (text) => String(text || '').replace(/"/g, '').trim();
+  const q = `track:"${clean(title)}" artist:"${clean(artistName)}"`;
   const data = await apiJson(`/search?${new URLSearchParams({ q, type: 'track', limit: '5', market: 'from_token' })}`);
   const items = (data.tracks?.items || []).filter((t) => t && t.is_playable !== false);
   const wanted = artistName.toLowerCase();
@@ -1150,14 +1157,19 @@ async function loadArtistRecs(name, id = null) {
     if (loadId !== state.recLoad) return;
 
     const tracks = [];
-    for (const item of (top.items || []).slice(0, 14)) {
-      const found = await findSpotifyTrack(item.name, item.artist || name).catch(() => null);
+    for (const item of (top.items || []).slice(0, 8)) {
+      let found = null;
+      try {
+        found = await findSpotifyTrack(item.name, item.artist || name);
+      } catch (err) {
+        if (err.status === 429) throw err; // si Spotify nos limita, paramos y lo mostramos
+      }
       if (loadId !== state.recLoad) return;
       if (found && !tracks.some((t) => t.id === found.id)) {
         rememberTrack(found);
         tracks.push(found);
       }
-      if (tracks.length >= 10) break;
+      if (tracks.length >= 5) break;
     }
 
     let note = '';
@@ -1233,221 +1245,6 @@ async function discoverBlind(button) {
   }
 }
 
-// Anti burbuja: elige un género que no aparece en tus géneros y reproduce un artista de él.
-const BUBBLE_GENRES = ['rock', 'jazz', 'metal', 'reggae', 'blues', 'classical', 'folk', 'country', 'punk',
-  'soul', 'funk', 'ambient', 'salsa', 'flamenco', 'disco', 'k-pop', 'indie', 'hip hop', 'techno', 'gospel', 'latin', 'bossa nova'];
-async function antiBubble(button) {
-  const mine = (state.genres || []).map((g) => g.genre.toLowerCase());
-  const outside = BUBBLE_GENRES.filter((g) => !mine.some((m) => m.includes(g) || g.includes(m)));
-  const shown = new Set((state.recArtist?.similar || []).map((n) => n.toLowerCase()));
-  const excluded = new Set([
-    ...(state.topArtists || []).map((x) => x.name.toLowerCase()),
-    ...shown,
-    ...blindSeen,
-  ]);
-
-  button.disabled = true;
-  try {
-    for (const tag of shuffle(outside).slice(0, 4)) {
-      const res = await fetch(`/api/tag-artists?${new URLSearchParams({ tag })}`);
-      const data = await res.json();
-      if (data.configured === false) {
-        state.lastfmOff = true;
-        setStatus('Para la anti burbuja hace falta LASTFM_API_KEY en el .env.', true);
-        return;
-      }
-      const names = shuffle((data.items || []).map((i) => i.name).filter((n) => !excluded.has(n.toLowerCase())));
-      if (names.length) {
-        const pick = names[0];
-        blindSeen.add(pick.toLowerCase());
-        setStatus(`Fuera de tu burbuja: ${tag} · ${pick}`);
-        await continueWithRelated(pick);
-        return;
-      }
-    }
-    setStatus('No he encontrado un artista fuera de tu burbuja por ahora. Prueba más tarde.', true);
-  } catch (err) {
-    setStatus(err.message || 'No se ha podido buscar fuera de tu burbuja.', true);
-  } finally {
-    button.disabled = false;
-  }
-}
-
-/* ---------- Salvapantallas del reproductor ---------- */
-// Tras 30 s sin mover el ratón (ni pulsar nada) y con una canción sonando, aparece el reproductor a pantalla completa.
-const IDLE_MS = 30000;
-let lastActivity = Date.now();
-const markActivity = () => {
-  lastActivity = Date.now();
-  // Si el ratón se mueve, vuelve a verse
-  $('screensaver').classList.remove('ss-hide-cursor');
-};
-['mousemove', 'pointerdown', 'keydown', 'touchstart', 'wheel'].forEach((ev) =>
-  window.addEventListener(ev, markActivity, { passive: true }));
-
-const artistPhotoCache = new Map();
-async function artistPhotoFor(name, id) {
-  const key = (id || name || '').toLowerCase();
-  if (!name) return '';
-  if (artistPhotoCache.has(key)) return artistPhotoCache.get(key);
-  const top = (state.topArtists || []).find((a) => (id && a.id === id) || a.name.toLowerCase() === name.toLowerCase());
-  let url = top?.images?.[0]?.url || '';
-  if (!url) {
-    try {
-      const found = await apiJson(`/search?${new URLSearchParams({ q: `artist:"${name}"`, type: 'artist', limit: '1' })}`);
-      url = found.artists?.items?.[0]?.images?.[0]?.url || '';
-    } catch { /* sin foto */ }
-  }
-  artistPhotoCache.set(key, url);
-  return url;
-}
-
-function renderScreensaver() {
-  const t = state.trackInfo.get(state.currentId);
-  const main = t?.artists?.[0] || { id: null, name: ($('track-artist').textContent || '').split(',')[0].trim() };
-  $('ss-cover').src = $('cover').src || '';
-  $('ss-title').textContent = $('track-title').textContent;
-  $('ss-artist-name').textContent = main.name || '';
-  const img = $('ss-artist-img');
-  img.hidden = true;
-  artistPhotoFor(main.name, main.id).then((url) => {
-    if ($('ss-artist-name').textContent !== (main.name || '')) return; // respuesta vieja
-    img.src = url || '';
-    img.hidden = !url;
-  });
-}
-function openScreensaver() {
-  renderScreensaver();
-  $('screensaver').hidden = false;
-  $('screensaver').classList.add('ss-hide-cursor');
-}
-function closeScreensaver() {
-  $('screensaver').hidden = true;
-  $('screensaver').classList.remove('ss-hide-cursor');
-  lastActivity = Date.now(); // no vuelve a salir hasta otros 30 s sin actividad
-}
-$('ss-close').addEventListener('click', closeScreensaver);
-$('screensaver').addEventListener('click', (event) => {
-  if (event.target === $('screensaver')) markActivity();
-});
-
-setInterval(() => {
-  if (!$('screensaver').hidden) return;
-  const playing = state.lastTick && !state.lastTick.paused;
-  if (playing && Date.now() - lastActivity >= IDLE_MS) openScreensaver();
-}, 1000);
-
-// Barra de tiempo solo visual (sin manejador): avanza con la posición estimada
-setInterval(() => {
-  if ($('screensaver').hidden) return;
-  const p = estimatedPosition();
-  if (p && p.duration) $('ss-fill').style.width = `${Math.min(100, (p.position / p.duration) * 100)}%`;
-}, 500);
-
-/* ---------- Perfil de artista (panel de la izquierda) ---------- */
-let artistPanelSeq = 0;
-const artistPanelCache = new Map(); // id o nombre -> { at, artist }
-const ARTIST_PANEL_TTL = 10 * 60 * 1000;
-function closeArtistPanel() {
-  artistPanelSeq++;
-  $('artist-panel').classList.remove('open');
-}
-// Solo información del artista: una petición a Spotify (y la caché de 10 minutos).
-async function openArtistPanel(name, id = null) {
-  if (!name) return;
-  const seq = ++artistPanelSeq;
-  $('artist-panel').classList.add('open');
-  $('ap-name').textContent = name;
-  const info = $('ap-info');
-  info.textContent = '';
-  info.appendChild(emptyNote('Cargando información del artista…'));
-
-  const top = (state.topArtists || []).find((a) => (id && a.id === id) || a.name.toLowerCase() === name.toLowerCase());
-  const cacheKey = (id || name).toLowerCase();
-  const cached = artistPanelCache.get(cacheKey);
-  let artist = cached && Date.now() - cached.at < ARTIST_PANEL_TTL ? cached.artist : top;
-
-  try {
-    if (!artist || !artist.followers) {
-      if (id) artist = await apiJson(`/artists/${id}`);
-      else {
-        const found = await apiJson(`/search?${new URLSearchParams({ q: `artist:"${name}"`, type: 'artist', limit: '1' })}`);
-        artist = found.artists?.items?.[0] || top;
-      }
-      if (!artist) throw new Error('No he encontrado este artista en Spotify.');
-      artistPanelCache.set(cacheKey, { at: Date.now(), artist });
-    }
-    if (seq !== artistPanelSeq) return;
-    renderArtistInfo(artist, top, name);
-  } catch (err) {
-    if (seq !== artistPanelSeq) return;
-    if (top) renderArtistInfo(top, top, name);
-    else {
-      info.textContent = '';
-      info.appendChild(emptyNote(err.message || 'No se ha podido cargar el artista.'));
-    }
-  }
-}
-
-// Spotify no da los "oyentes mensuales"; Last.fm sí da sus oyentes, que es lo que mostramos.
-async function loadArtistListeners(name) {
-  const value = $('ap-listeners');
-  if (!value) return;
-  try {
-    const res = await fetch(`/api/artist-stats?${new URLSearchParams({ artist: name })}`);
-    const data = await res.json();
-    // Si el panel ya muestra otro artista, esta respuesta llega tarde y no se pinta
-    if ($('ap-listeners') !== value) return;
-    if (data.configured === false) value.textContent = 'Falta LASTFM_API_KEY';
-    else if (data.error) value.textContent = '—';
-    else value.textContent = Number(data.listeners || 0).toLocaleString('es-ES');
-  } catch {
-    value.textContent = '—';
-  }
-}
-
-function renderArtistInfo(artist, top, name) {
-  const img = $('ap-img');
-  const pic = artist.images?.[0]?.url || top?.images?.[0]?.url || '';
-  img.src = pic;
-  img.hidden = !pic;
-  const genres = artist.genres?.length ? artist.genres : (top?.genres || []);
-  $('ap-genres').textContent = genres.length ? genres.slice(0, 4).join(' · ') : 'Sin géneros en Spotify';
-  $('ap-name').textContent = artist.name || name;
-
-  const info = $('ap-info');
-  info.textContent = '';
-  const grid = el('div', 'stat-grid');
-  const followers = artist.followers?.total;
-  const listenersBox = el('div', 'stat');
-  const listenersValue = el('b', null, '…');
-  listenersValue.id = 'ap-listeners';
-  listenersBox.append(listenersValue, el('span', null, 'Oyentes (Last.fm)'));
-  const followersBox = el('div', 'stat');
-  followersBox.append(
-    el('b', null, followers != null ? followers.toLocaleString('es-ES') : '—'),
-    el('span', null, 'Seguidores en Spotify'),
-  );
-  grid.append(followersBox, listenersBox);
-  info.appendChild(grid);
-  loadArtistListeners(name);
-
-  const url = artist.external_urls?.spotify;
-  if (url) {
-    const link = el('a', 'ap-link', 'Abrir perfil en Spotify');
-    link.href = url;
-    link.target = '_blank';
-    link.rel = 'noopener';
-    info.appendChild(link);
-  }
-}
-$('ap-close').addEventListener('click', closeArtistPanel);
-$('track-artist').addEventListener('click', () => {
-  const t = state.trackInfo.get(state.currentId);
-  const first = t?.artists?.[0];
-  if (first?.name) openArtistPanel(first.name, first.id);
-});
-
 function renderRecs() {
   const box = $('recs');
   box.textContent = '';
@@ -1518,13 +1315,7 @@ function renderRecs() {
     blind.textContent = '🎲 A ciegas';
     blind.title = 'Descubrir un artista nuevo al azar y reproducir sus canciones';
     blind.addEventListener('click', () => discoverBlind(blind));
-    const bubble = document.createElement('button');
-    bubble.type = 'button';
-    bubble.className = 'ghost small';
-    bubble.textContent = '🫧 Anti burbuja';
-    bubble.title = 'Descubrir un artista de un género que no escuchas';
-    bubble.addEventListener('click', () => antiBubble(bubble));
-    subHead.append(sub, blind, bubble);
+    subHead.append(sub, blind);
     const chips = document.createElement('div');
     chips.className = 'chips';
     for (const name of r.similar) {
