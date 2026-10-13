@@ -39,10 +39,8 @@ const state = {
   topTracks: [],
   topArtists: [],
   genres: [],
-  recArtist: null,      // { id, name, tracks, similar, note, loading }
-  recLoad: 0,           // para ignorar búsquedas de un artista ya superado
-  recCache: new Map(),  // nombre de artista -> resultado ya cargado
   recentIds: new Set(),
+  artistView: null,     // { id, name, tracks, loading, error } del artista que suena
   heard: new Set(),
   knownArtistIds: new Set(),
   lastTrackId: null,
@@ -490,7 +488,6 @@ async function handlePlaybackError(message) {
 
   if (t?.id) {
     state.failedIds.add(t.id);
-    if (state.recArtist) state.recArtist.tracks = state.recArtist.tracks.filter((x) => x.id !== t.id);
     renderTop();
     renderRecs();
   }
@@ -659,7 +656,7 @@ async function loadAll() {
   setStatus('Cargando tu música…');
   $('top-list').textContent = '';
   $('genres').textContent = '';
-  state.recArtist = null;
+  state.artistView = null;
   renderRecs();
 
   try {
@@ -944,7 +941,7 @@ function applyState(st) {
     onTrackChange(t.id);
     refreshGenres();
     const artist = state.trackInfo.get(t.id)?.artists?.[0] || { id: null, name: t.artists[0]?.name };
-    if (artist.name) loadArtistRecs(artist.name, artist.id);
+    if (artist.name) showArtistTop(artist.id, artist.name);
 
   }
 
@@ -956,17 +953,7 @@ function applyState(st) {
   checkRepeat(t, st, paused);
   updateFavicon(st.position || 0, st.duration || 0, paused);
 
-  // Fin de la última recomendación del artista. Al acabar, Spotify para (y a veces repite
-  // la misma canción en pausa) en vez de cambiar de id, así que miramos la posición anterior.
-  const before = state.lastTick;
   state.lastTick = { id: t.id, position: st.position || 0, duration: st.duration || 0, paused };
-  const lastRec = state.recArtist?.tracks?.at(-1);
-  if (lastRec && before && before.id === lastRec.id && before.duration
-      && before.position >= before.duration - 2500 && !state.endFired
-      && (paused || t.id !== before.id)) {
-    state.endFired = true;
-    continueWithRelated(state.recArtist.similar?.[0]);
-  }
 
   // Contador de reproducciones: al superar 30 s de una canción, una vez por reproducción.
   if (!paused && t.id && st.position >= 30000 && !state.counted.has(t.id)) {
@@ -1223,7 +1210,6 @@ async function refreshGenres() {
   const wanted = new Map();
   const collect = (t) => (t?.artists || []).forEach((a) => a.id && wanted.set(a.id, a.name));
   state.topTracks.forEach(collect);
-  if (state.recArtist) state.recArtist.tracks.forEach(collect);
   collect(state.trackInfo.get(state.currentId));
 
   const missing = [...wanted]
@@ -1314,249 +1300,145 @@ function toggleProfileMenu(force) {
   $('profile-btn').setAttribute('aria-expanded', String(open));
 }
 
-/* ---------- Recomendaciones por artista ---------- */
-// Canciones del artista: su top según Last.fm, buscado después en Spotify
-// (Spotify ya no ofrece el top de un artista). Artistas relacionados: también Last.fm.
-async function artistInfo(name, kind) {
-  const res = await fetch(`/api/artist-info?${new URLSearchParams({ artist: name, kind })}`);
-  if (!(res.headers.get('content-type') || '').includes('application/json')) {
-    return { items: [], stale: true };
-  }
-  return res.json();
-}
+/* ---------- Artista que suena: 5 canciones y perfil ---------- */
+// Las canciones salen del top de Last.fm (sin llamadas a Spotify al mostrarlas).
+// Solo al pulsar una, se busca esa canción en Spotify para reproducirla.
+const ARTIST_TOP_N = 5;
+const ARTIST_TOP_TTL = 7 * 86400000;
 
-async function findSpotifyTrack(title, artistName) {
-  // Las comillas dentro del título o del artista rompen la búsqueda de Spotify
-  const clean = (text) => String(text || '').replace(/"/g, '').trim();
-  const q = `track:"${clean(title)}" artist:"${clean(artistName)}"`;
-  const data = await apiJson(`/search?${new URLSearchParams({ q, type: 'track', limit: '5', market: 'from_token' })}`);
-  const items = (data.tracks?.items || []).filter((t) => t && t.is_playable !== false);
-  const wanted = artistName.toLowerCase();
-  return items.find((t) => (t.artists || []).some((a) => a.name.toLowerCase() === wanted)) || null;
+function artistTopKey(id) {
+  return `artist_top:${id}`;
 }
-
-// Tema aleatorio entre TODAS las canciones del artista en Spotify (no solo las cargadas).
-// Spotify limita la búsqueda a 1000 resultados, así que elegimos una posición al azar en ese rango.
-async function randomArtistTrack(name, button) {
-  button.disabled = true;
-  const wanted = name.toLowerCase();
+function readArtistTop(id) {
   try {
-    const q = `artist:"${name}"`;
-    const first = await apiJson(`/search?${new URLSearchParams({ q, type: 'track', limit: '1', market: 'from_token' })}`);
-    const total = Math.min(first.tracks?.total || 0, 1000);
-    if (!total) {
-      setStatus(`No encuentro canciones de ${name} en Spotify.`, true);
-      return;
-    }
-    for (let attempt = 0; attempt < 4; attempt++) {
-      const offset = Math.floor(Math.random() * total);
-      const data = await apiJson(`/search?${new URLSearchParams({ q, type: 'track', limit: '1', offset: String(offset), market: 'from_token' })}`);
-      const t = (data.tracks?.items || [])[0];
-      if (t && t.is_playable !== false && (t.artists || []).some((a) => a.name.toLowerCase() === wanted)) {
-        setStatus(`Tema aleatorio de ${name}: ${t.name}`);
-        playUris([t.uri]);
-        return;
-      }
-    }
-    setStatus(`No he conseguido un tema aleatorio de ${name}. Prueba otra vez.`, true);
-  } catch (err) {
-    setStatus(err.message || 'No se ha podido buscar el tema aleatorio.', true);
-  } finally {
-    button.disabled = false;
+    const hit = JSON.parse(store.get(artistTopKey(id)) || 'null');
+    if (hit && Date.now() - hit.at < ARTIST_TOP_TTL && Array.isArray(hit.tracks) && hit.tracks.length) return hit.tracks;
+  } catch { /* caché dañada: se ignora */ }
+  return null;
+}
+function saveArtistTop(id, tracks) {
+  store.set(artistTopKey(id), JSON.stringify({ at: Date.now(), tracks }));
+}
+
+// Top de canciones del artista en Last.fm (nombres). Devuelve { tracks, configured, error }.
+async function lastfmTopTracks(name) {
+  try {
+    const res = await fetch(`/api/artist-info?${new URLSearchParams({ artist: name, kind: 'tracks' })}`);
+    if (!(res.headers.get('content-type') || '').includes('application/json')) return { tracks: [], error: true };
+    const data = await res.json();
+    if (data.configured === false) return { tracks: [], configured: false };
+    if (data.error) return { tracks: [], error: true };
+    const tracks = (data.items || []).slice(0, ARTIST_TOP_N).map((t) => ({ name: t.name, artist: t.artist || name, uri: null }));
+    return { tracks, configured: true };
+  } catch {
+    return { tracks: [], error: true };
   }
 }
 
-async function loadArtistRecs(name, id = null) {
-  if (!name) return;
-  const loadId = ++state.recLoad;
+// Compara títulos sin mayúsculas, acentos ni paréntesis (p. ej. "(Remastered)").
+const normTitle = (text) => String(text || '')
+  .toLowerCase()
+  .replace(/\s*[([].*?[)\]]\s*/g, ' ')
+  .replace(/[^\p{L}\p{N}]+/gu, ' ')
+  .trim();
 
-  const cached = state.recCache.get(name);
-  if (cached) {
-    state.recArtist = { id, name, ...cached, loading: false };
+// Se llama al cambiar de canción: muestra el artista que suena y su top de Last.fm.
+async function showArtistTop(id, name) {
+  const key = id || name;
+  if (state.artistView?.key === key && state.artistView.tracks?.length) {
     renderRecs();
-    refreshGenres();
     return;
   }
-
-  state.recArtist = { id, name, tracks: [], similar: [], note: '', loading: true };
+  const cached = id ? readArtistTop(id) : null;
+  state.artistView = { key, id, name, tracks: cached || [], loading: !cached, error: '' };
   renderRecs();
-  try {
-    const [top, similar] = await Promise.all([artistInfo(name, 'tracks'), artistInfo(name, 'similar')]);
-    if (loadId !== state.recLoad) return;
+  if (cached) return;
 
-    const tracks = [];
-    for (const item of (top.items || []).slice(0, 8)) {
-      let found = null;
-      try {
-        found = await findSpotifyTrack(item.name, item.artist || name);
-      } catch (err) {
-        if (err.status === 429) throw err; // si Spotify nos limita, paramos y lo mostramos
-      }
-      if (loadId !== state.recLoad) return;
-      if (found && !tracks.some((t) => t.id === found.id)) {
-        rememberTrack(found);
-        tracks.push(found);
-      }
-      if (tracks.length >= 5) break;
-    }
-
-    let note = '';
-    if (top.stale) note = 'El servidor necesita la versión nueva de server.js. Reinícialo.';
-    else if (top.configured === false) note = 'Añade LASTFM_API_KEY en el .env para ver recomendaciones.';
-    else if (top.error) note = `Last.fm: ${top.message || 'no se ha podido consultar'}.`;
-    else if (!tracks.length) note = 'No he encontrado canciones de este artista en Spotify.';
-
-    const result = { tracks, similar: (similar.items || []).map((i) => i.name).slice(0, 6), note };
-    state.recCache.set(name, result);
-    state.recArtist = { id, name, ...result, loading: false };
-  } catch (err) {
-    if (loadId !== state.recLoad) return;
-    state.recArtist = { id, name, tracks: [], similar: [], note: err.message, loading: false };
-  }
+  const result = await lastfmTopTracks(name);
+  if (state.artistView?.key !== key) return;
+  let error = '';
+  if (result.configured === false) error = 'Falta LASTFM_API_KEY en el servidor.';
+  else if (result.error) error = 'No se ha podido consultar Last.fm. Pulsa Reintentar en un rato.';
+  else if (!result.tracks.length) error = 'Last.fm no tiene canciones de este artista.';
+  if (id && result.tracks.length) saveArtistTop(id, result.tracks);
+  state.artistView = { key, id, name, tracks: result.tracks, loading: false, error };
   renderRecs();
-  refreshGenres();
 }
 
-// Carga el primer artista relacionado y empieza a sonar su lista de recomendaciones.
-async function continueWithRelated(name) {
-  if (!name) return;
-  await loadArtistRecs(name);
-  const r = state.recArtist;
-  if (r && r.name === name && r.tracks.length) {
-    playUris(r.tracks.map((t) => t.uri));
-  } else {
-    setStatus(`No he encontrado canciones de ${name} para seguir.`, true);
+// Busca UNA canción en Spotify (solo al pulsarla) y la reproduce.
+async function playLastfmTrack(index) {
+  const v = state.artistView;
+  const t = v?.tracks?.[index];
+  if (!t) return;
+  if (!t.uri) {
+    // Primero miramos si la canción ya la conocemos (top, historial, recomendaciones): sin llamada a Spotify.
+    const known = [...state.trackInfo.values()].find((x) => x?.uri && normTitle(x.name) === normTitle(t.name)
+      && (x.artists || []).some((a) => (a.name || '').toLowerCase() === String(t.artist).toLowerCase()));
+    if (known) t.uri = known.uri;
   }
-}
-
-// Descubrimiento a ciegas: elige un artista nuevo al azar entre los relacionados
-// y reproduce sus canciones. Evita tus artistas del top y los que ya salieron.
-const blindSeen = new Set();
-async function discoverBlind(button) {
-  // Excluimos lo que ya se ve en pantalla: tus artistas, los relacionados mostrados y los ya descubiertos.
-  const shown = new Set((state.recArtist?.similar || []).map((n) => n.toLowerCase()));
-  const excluded = new Set([
-    ...(state.topArtists || []).map((x) => x.name.toLowerCase()),
-    ...shown,
-    ...blindSeen,
-    (state.recArtist?.name || '').toLowerCase(),
-  ]);
-  const free = (name) => name && !excluded.has(name.toLowerCase());
-
-  button.disabled = true;
-  try {
-    // Segundo nivel: relacionados de un relacionado al azar (así el resultado no sale de la lista visible).
-    let candidates = [];
-    const seeds = shuffle(state.recArtist?.similar || []);
-    for (const seed of seeds.slice(0, 3)) {
-      const info = await artistInfo(seed, 'similar');
-      candidates = shuffle((info.items || []).map((i) => i.name).filter(free));
-      if (candidates.length) break;
-    }
-    // Si no sale nada, relacionados de un artista de tu top al azar.
-    if (!candidates.length && state.topArtists.length) {
-      const info = await artistInfo(shuffle(state.topArtists)[0].name, 'similar');
-      candidates = shuffle((info.items || []).map((i) => i.name).filter(free));
-    }
-    if (!candidates.length) {
-      setStatus('No encuentro un artista nuevo por ahora. Prueba más tarde.', true);
+  if (!t.uri) {
+    setStatus(`Buscando "${t.name}" en Spotify…`);
+    try {
+      const clean = (x) => String(x || '').replace(/"/g, '').trim();
+      const data = await apiJson(`/search?${new URLSearchParams({ q: `track:"${clean(t.name)}" artist:"${clean(t.artist)}"`, type: 'track', limit: '5', market: 'from_token' })}`);
+      const items = (data.tracks?.items || []).filter((x) => x && x.is_playable !== false);
+      const hit = items.find((x) => normTitle(x.name) === normTitle(t.name)) || items[0];
+      if (!hit) {
+        setStatus(`No he encontrado "${t.name}" en Spotify.`, true);
+        return;
+      }
+      t.uri = hit.uri;
+      if (v.id) saveArtistTop(v.id, v.tracks);
+    } catch (err) {
+      setStatus(err.status === 429 ? 'Spotify ha limitado las peticiones. Vuelve a intentarlo en un rato.' : (err.message || 'No se ha podido buscar la canción.'), true);
       return;
     }
-    const pick = candidates[0];
-    blindSeen.add(pick.toLowerCase());
-    setStatus(`Descubrimiento a ciegas: ${pick}`);
-    await continueWithRelated(pick);
-  } catch (err) {
-    setStatus(err.message || 'No se ha podido descubrir un artista.', true);
-  } finally {
-    button.disabled = false;
   }
+  setStatus('');
+  playUris([t.uri]);
 }
 
 function renderRecs() {
   const box = $('recs');
   box.textContent = '';
-  const r = state.recArtist;
-  if (!r) {
-    box.appendChild(emptyNote('Pon una canción o espera a que cargue tu top.'));
+  const v = state.artistView;
+  if (!v) {
+    box.appendChild(emptyNote('Aquí aparecen las 5 canciones del artista que está sonando.'));
     return;
   }
-
-  const head = document.createElement('div');
-  head.className = 'section-head';
-  const h = document.createElement('h3');
-  h.textContent = `Más de ${r.name}`;
-  const play = document.createElement('button');
-  play.type = 'button';
-  play.className = 'ghost small';
-  play.textContent = 'Reproducir';
-  play.disabled = r.loading || !r.tracks.length;
-  play.addEventListener('click', () => playUris(r.tracks.map((t) => t.uri)));
-  const profile = document.createElement('button');
+  const head = el('div', 'artist-top-head');
+  head.appendChild(el('h3', null, v.name));
+  const profile = el('button', 'ghost small', 'Perfil');
   profile.type = 'button';
-  profile.className = 'ghost small';
-  profile.textContent = 'Perfil';
-  profile.addEventListener('click', () => openArtistPanel(r.name, r.id));
-  head.append(h, profile, play);
+  profile.addEventListener('click', () => openArtistPanel(v.name, v.id));
+  head.appendChild(profile);
   box.appendChild(head);
 
-  const list = document.createElement('div');
-  list.className = 'list';
-  if (r.loading) list.appendChild(emptyNote(`Buscando canciones de ${r.name}…`));
-  else if (!r.tracks.length) {
-    // Mensaje + botón para volver a pedir los datos de este artista
-    const wrap = emptyNote(r.note || 'Sin canciones por ahora.');
+  if (v.loading) {
+    box.appendChild(emptyNote('Buscando canciones…'));
+    return;
+  }
+  if (v.error) {
+    box.appendChild(emptyNote(v.error));
     const retry = el('button', 'ghost small', 'Reintentar');
     retry.type = 'button';
-    retry.style.marginLeft = '8px';
     retry.addEventListener('click', () => {
-      state.recCache.delete(r.name); // descartamos el resultado anterior
-      loadArtistRecs(r.name, r.id);
+      if (v.id) store.del(artistTopKey(v.id));
+      state.artistView = null;
+      showArtistTop(v.id, v.name);
     });
-    wrap.appendChild(retry);
-    list.appendChild(wrap);
+    box.appendChild(retry);
+    return;
   }
-  r.tracks.forEach((track, i) => {
-    list.appendChild(trackRow(track, i + 1, () => playUris(r.tracks.slice(i).map((t) => t.uri))));
+  v.tracks.forEach((t, i) => {
+    const row = el('button', 'track-row');
+    row.type = 'button';
+    const meta = el('div', 'meta');
+    meta.appendChild(el('div', 'tt', t.name));
+    row.appendChild(meta);
+    row.addEventListener('click', () => playLastfmTrack(i));
+    box.appendChild(row);
   });
-  box.appendChild(list);
-
-  // Tema aleatorio de este artista, debajo de la lista
-  const random = document.createElement('button');
-  random.type = 'button';
-  random.className = 'ghost small';
-  random.textContent = '🔀 Tema aleatorio';
-  random.style.marginTop = '8px';
-  random.disabled = r.loading || !r.tracks.length;
-  random.addEventListener('click', () => randomArtistTrack(r.name, random));
-  box.appendChild(random);
-
-  if (r.similar && r.similar.length) {
-    const sub = document.createElement('h3');
-    sub.textContent = 'Artistas relacionados';
-    const subHead = document.createElement('div');
-    subHead.className = 'section-head';
-    subHead.style.margin = '18px 0 8px';
-    const blind = document.createElement('button');
-    blind.type = 'button';
-    blind.className = 'ghost small';
-    blind.textContent = '🎲 A ciegas';
-    blind.title = 'Descubrir un artista nuevo al azar y reproducir sus canciones';
-    blind.addEventListener('click', () => discoverBlind(blind));
-    subHead.append(sub, blind);
-    const chips = document.createElement('div');
-    chips.className = 'chips';
-    for (const name of r.similar) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'chip chip-btn';
-      b.textContent = name;
-      b.title = `Ver canciones de ${name}`;
-      b.addEventListener('click', () => loadArtistRecs(name));
-      chips.appendChild(b);
-    }
-    box.append(subHead, chips);
-  }
 }
 
 /* ---------- Pantallas ---------- */

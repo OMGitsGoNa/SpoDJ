@@ -593,3 +593,7 @@ html.ss-open, html.ss-open body { overflow: hidden; }
 
 /* Botones de la cabecera de la sección, juntos */
 .head-actions { display: flex; align-items: center; gap: 8px; }
+
+/* Cabecera del artista que suena: nombre y botón de perfil */
+.artist-top-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.artist-top-head h3 { margin: 0; font-size: 1rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
