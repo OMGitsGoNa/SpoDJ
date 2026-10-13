@@ -1277,7 +1277,11 @@ async function antiBubble(button) {
 // Tras 30 s sin mover el ratón (ni pulsar nada) y con una canción sonando, aparece el reproductor a pantalla completa.
 const IDLE_MS = 30000;
 let lastActivity = Date.now();
-const markActivity = () => { lastActivity = Date.now(); };
+const markActivity = () => {
+  lastActivity = Date.now();
+  // Si el ratón se mueve, vuelve a verse
+  $('screensaver').classList.remove('ss-hide-cursor');
+};
 ['mousemove', 'pointerdown', 'keydown', 'touchstart', 'wheel'].forEach((ev) =>
   window.addEventListener(ev, markActivity, { passive: true }));
 
@@ -1315,9 +1319,11 @@ function renderScreensaver() {
 function openScreensaver() {
   renderScreensaver();
   $('screensaver').hidden = false;
+  $('screensaver').classList.add('ss-hide-cursor');
 }
 function closeScreensaver() {
   $('screensaver').hidden = true;
+  $('screensaver').classList.remove('ss-hide-cursor');
   lastActivity = Date.now(); // no vuelve a salir hasta otros 30 s sin actividad
 }
 $('ss-close').addEventListener('click', closeScreensaver);
@@ -1472,7 +1478,19 @@ function renderRecs() {
   const list = document.createElement('div');
   list.className = 'list';
   if (r.loading) list.appendChild(emptyNote(`Buscando canciones de ${r.name}…`));
-  else if (!r.tracks.length) list.appendChild(emptyNote(r.note || 'Sin canciones por ahora.'));
+  else if (!r.tracks.length) {
+    // Mensaje + botón para volver a pedir los datos de este artista
+    const wrap = emptyNote(r.note || 'Sin canciones por ahora.');
+    const retry = el('button', 'ghost small', 'Reintentar');
+    retry.type = 'button';
+    retry.style.marginLeft = '8px';
+    retry.addEventListener('click', () => {
+      state.recCache.delete(r.name); // descartamos el resultado anterior
+      loadArtistRecs(r.name, r.id);
+    });
+    wrap.appendChild(retry);
+    list.appendChild(wrap);
+  }
   r.tracks.forEach((track, i) => {
     list.appendChild(trackRow(track, i + 1, () => playUris(r.tracks.slice(i).map((t) => t.uri))));
   });

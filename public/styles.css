@@ -380,7 +380,8 @@ button.chip:hover { color: var(--text); background: var(--panel); }
 .screensaver[hidden] { display: none; }
 @keyframes ss-in { from { opacity: 0; } to { opacity: 1; } }
 .ss-close { position: absolute; top: 18px; right: 18px; padding: 8px 18px; font-size: 2.4rem; line-height: 1; }
-.screensaver, .screensaver * { cursor: none; }
+/* El ratón se oculta solo mientras no se mueve (clase añadida por app.js) */
+.screensaver.ss-hide-cursor, .screensaver.ss-hide-cursor * { cursor: none; }
 .ss-card { display: flex; flex-direction: column; align-items: center; gap: 22px; text-align: center; max-width: min(92vw, 720px); color: var(--text); }
 #ss-cover {
   width: min(70vw, 52vh, 480px);
