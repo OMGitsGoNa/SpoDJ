@@ -40,7 +40,6 @@ const state = {
   topArtists: [],
   genres: [],
   recentIds: new Set(),
-  artistView: null,     // { id, name, tracks, loading, error } del artista que suena
   heard: new Set(),
   knownArtistIds: new Set(),
   lastTrackId: null,
@@ -489,7 +488,6 @@ async function handlePlaybackError(message) {
   if (t?.id) {
     state.failedIds.add(t.id);
     renderTop();
-    renderRecs();
   }
 
   state.errorStreak += 1;
@@ -656,8 +654,6 @@ async function loadAll() {
   setStatus('Cargando tu música…');
   $('top-list').textContent = '';
   $('genres').textContent = '';
-  state.artistView = null;
-  renderRecs();
 
   try {
     const q = (n) => new URLSearchParams({ time_range: state.range, limit: String(n) });
@@ -941,7 +937,6 @@ function applyState(st) {
     onTrackChange(t.id);
     refreshGenres();
     const artist = state.trackInfo.get(t.id)?.artists?.[0] || { id: null, name: t.artists[0]?.name };
-    if (artist.name) showArtistTop(artist.id, artist.name);
 
   }
 
@@ -1198,7 +1193,6 @@ function markPlaying() {
 
 function renderAllTracks() {
   renderTop();
-  renderRecs();
   updateNowGenre();
 }
 
@@ -1298,147 +1292,6 @@ function toggleProfileMenu(force) {
   const open = typeof force === 'boolean' ? force : menu.hidden;
   menu.hidden = !open;
   $('profile-btn').setAttribute('aria-expanded', String(open));
-}
-
-/* ---------- Artista que suena: 5 canciones y perfil ---------- */
-// Las canciones salen del top de Last.fm (sin llamadas a Spotify al mostrarlas).
-// Solo al pulsar una, se busca esa canción en Spotify para reproducirla.
-const ARTIST_TOP_N = 5;
-const ARTIST_TOP_TTL = 7 * 86400000;
-
-function artistTopKey(id) {
-  return `artist_top:${id}`;
-}
-function readArtistTop(id) {
-  try {
-    const hit = JSON.parse(store.get(artistTopKey(id)) || 'null');
-    if (hit && Date.now() - hit.at < ARTIST_TOP_TTL && Array.isArray(hit.tracks) && hit.tracks.length) return hit.tracks;
-  } catch { /* caché dañada: se ignora */ }
-  return null;
-}
-function saveArtistTop(id, tracks) {
-  store.set(artistTopKey(id), JSON.stringify({ at: Date.now(), tracks }));
-}
-
-// Top de canciones del artista en Last.fm (nombres). Devuelve { tracks, configured, error }.
-async function lastfmTopTracks(name) {
-  try {
-    const res = await fetch(`/api/artist-info?${new URLSearchParams({ artist: name, kind: 'tracks' })}`);
-    if (!(res.headers.get('content-type') || '').includes('application/json')) return { tracks: [], error: true };
-    const data = await res.json();
-    if (data.configured === false) return { tracks: [], configured: false };
-    if (data.error) return { tracks: [], error: true };
-    const tracks = (data.items || []).slice(0, ARTIST_TOP_N).map((t) => ({ name: t.name, artist: t.artist || name, uri: null }));
-    return { tracks, configured: true };
-  } catch {
-    return { tracks: [], error: true };
-  }
-}
-
-// Compara títulos sin mayúsculas, acentos ni paréntesis (p. ej. "(Remastered)").
-const normTitle = (text) => String(text || '')
-  .toLowerCase()
-  .replace(/\s*[([].*?[)\]]\s*/g, ' ')
-  .replace(/[^\p{L}\p{N}]+/gu, ' ')
-  .trim();
-
-// Se llama al cambiar de canción: muestra el artista que suena y su top de Last.fm.
-async function showArtistTop(id, name) {
-  const key = id || name;
-  if (state.artistView?.key === key && state.artistView.tracks?.length) {
-    renderRecs();
-    return;
-  }
-  const cached = id ? readArtistTop(id) : null;
-  state.artistView = { key, id, name, tracks: cached || [], loading: !cached, error: '' };
-  renderRecs();
-  if (cached) return;
-
-  const result = await lastfmTopTracks(name);
-  if (state.artistView?.key !== key) return;
-  let error = '';
-  if (result.configured === false) error = 'Falta LASTFM_API_KEY en el servidor.';
-  else if (result.error) error = 'No se ha podido consultar Last.fm. Pulsa Reintentar en un rato.';
-  else if (!result.tracks.length) error = 'Last.fm no tiene canciones de este artista.';
-  if (id && result.tracks.length) saveArtistTop(id, result.tracks);
-  state.artistView = { key, id, name, tracks: result.tracks, loading: false, error };
-  renderRecs();
-}
-
-// Busca UNA canción en Spotify (solo al pulsarla) y la reproduce.
-async function playLastfmTrack(index) {
-  const v = state.artistView;
-  const t = v?.tracks?.[index];
-  if (!t) return;
-  if (!t.uri) {
-    // Primero miramos si la canción ya la conocemos (top, historial, recomendaciones): sin llamada a Spotify.
-    const known = [...state.trackInfo.values()].find((x) => x?.uri && normTitle(x.name) === normTitle(t.name)
-      && (x.artists || []).some((a) => (a.name || '').toLowerCase() === String(t.artist).toLowerCase()));
-    if (known) t.uri = known.uri;
-  }
-  if (!t.uri) {
-    setStatus(`Buscando "${t.name}" en Spotify…`);
-    try {
-      const clean = (x) => String(x || '').replace(/"/g, '').trim();
-      const data = await apiJson(`/search?${new URLSearchParams({ q: `track:"${clean(t.name)}" artist:"${clean(t.artist)}"`, type: 'track', limit: '5', market: 'from_token' })}`);
-      const items = (data.tracks?.items || []).filter((x) => x && x.is_playable !== false);
-      const hit = items.find((x) => normTitle(x.name) === normTitle(t.name)) || items[0];
-      if (!hit) {
-        setStatus(`No he encontrado "${t.name}" en Spotify.`, true);
-        return;
-      }
-      t.uri = hit.uri;
-      if (v.id) saveArtistTop(v.id, v.tracks);
-    } catch (err) {
-      setStatus(err.status === 429 ? 'Spotify ha limitado las peticiones. Vuelve a intentarlo en un rato.' : (err.message || 'No se ha podido buscar la canción.'), true);
-      return;
-    }
-  }
-  setStatus('');
-  playUris([t.uri]);
-}
-
-function renderRecs() {
-  const box = $('recs');
-  box.textContent = '';
-  const v = state.artistView;
-  if (!v) {
-    box.appendChild(emptyNote('Aquí aparecen las 5 canciones del artista que está sonando.'));
-    return;
-  }
-  const head = el('div', 'artist-top-head');
-  head.appendChild(el('h3', null, v.name));
-  const profile = el('button', 'ghost small', 'Perfil');
-  profile.type = 'button';
-  profile.addEventListener('click', () => openArtistPanel(v.name, v.id));
-  head.appendChild(profile);
-  box.appendChild(head);
-
-  if (v.loading) {
-    box.appendChild(emptyNote('Buscando canciones…'));
-    return;
-  }
-  if (v.error) {
-    box.appendChild(emptyNote(v.error));
-    const retry = el('button', 'ghost small', 'Reintentar');
-    retry.type = 'button';
-    retry.addEventListener('click', () => {
-      if (v.id) store.del(artistTopKey(v.id));
-      state.artistView = null;
-      showArtistTop(v.id, v.name);
-    });
-    box.appendChild(retry);
-    return;
-  }
-  v.tracks.forEach((t, i) => {
-    const row = el('button', 'track-row');
-    row.type = 'button';
-    const meta = el('div', 'meta');
-    meta.appendChild(el('div', 'tt', t.name));
-    row.appendChild(meta);
-    row.addEventListener('click', () => playLastfmTrack(i));
-    box.appendChild(row);
-  });
 }
 
 /* ---------- Pantallas ---------- */

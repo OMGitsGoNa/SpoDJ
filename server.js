@@ -71,42 +71,6 @@ app.get('/api/tags', async (req, res) => {
   }
 });
 
-// Canciones más escuchadas de un artista (kind=tracks) o artistas relacionados (kind=similar)
-const infoCache = new Map();
-app.get('/api/artist-info', async (req, res) => {
-  const artist = String(req.query.artist || '').trim().slice(0, 120);
-  const kind = req.query.kind === 'similar' ? 'similar' : 'tracks';
-  if (!artist) return res.json({ items: [], configured: Boolean(LASTFM_KEY) });
-  if (!LASTFM_KEY) return res.json({ items: [], configured: false });
-
-  const key = `${kind}:${artist.toLowerCase()}`;
-  if (infoCache.has(key)) return res.json({ items: infoCache.get(key), configured: true });
-
-  try {
-    const params = new URLSearchParams({
-      method: kind === 'similar' ? 'artist.getsimilar' : 'artist.gettoptracks',
-      artist,
-      autocorrect: '1',
-      limit: kind === 'similar' ? '6' : '8',
-      api_key: LASTFM_KEY,
-      format: 'json',
-    });
-    const response = await fetch(`https://ws.audioscrobbler.com/2.0/?${params}`);
-    const data = await response.json();
-    if (data.error && data.error !== 6) {
-      return res.json({ items: [], configured: true, error: true, message: data.message });
-    }
-    const items = kind === 'similar'
-      ? (data.similarartists?.artist || []).map((a) => ({ name: String(a.name || '') })).filter((a) => a.name)
-      : (data.toptracks?.track || []).map((t) => ({ name: String(t.name || ''), artist: String(t.artist?.name || artist) })).filter((t) => t.name);
-    infoCache.set(key, items);
-    res.json({ items, configured: true });
-  } catch (err) {
-    console.error('Last.fm no responde:', err?.message);
-    res.json({ items: [], configured: true, error: true });
-  }
-});
-
 // Oyentes y reproducciones totales de un artista en Last.fm
 const artistStatsCache = new Map();
 app.get('/api/artist-stats', async (req, res) => {
