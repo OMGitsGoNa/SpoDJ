@@ -878,17 +878,19 @@ $('bg-level').addEventListener('input', (event) => {
 });
 
 
-// Vista compacta del top (se recuerda en el navegador).
-function applyTopCompact(on) {
-  $('top-list').classList.toggle('compact', on);
-  $('top-compact').setAttribute('aria-pressed', String(on));
-  $('top-compact').title = on ? 'Vista compacta: activada' : 'Vista compacta: desactivada';
+// Vista compacta (se recuerda en el navegador) para el top y el historial.
+function applyCompact(listId, btnId, on) {
+  $(listId).classList.toggle('compact', on);
+  $(btnId).setAttribute('aria-pressed', String(on));
+  $(btnId).title = on ? 'Vista compacta: activada' : 'Vista compacta: desactivada';
 }
-$('top-compact').addEventListener('click', () => {
-  const on = !$('top-list').classList.contains('compact');
-  store.set('top_compact', on ? '1' : '0');
-  applyTopCompact(on);
-});
+function toggleCompact(listId, btnId, key) {
+  const on = !$(listId).classList.contains('compact');
+  store.set(key, on ? '1' : '0');
+  applyCompact(listId, btnId, on);
+}
+$('top-compact').addEventListener('click', () => toggleCompact('top-list', 'top-compact', 'top_compact'));
+$('history-compact').addEventListener('click', () => toggleCompact('history-list', 'history-compact', 'history_compact'));
 
 // Aviso claro cuando se corta la conexión a internet.
 window.addEventListener('offline', () => setStatus('Sin conexión a internet. SpoDJ seguirá cuando vuelva la red.', true));
@@ -905,7 +907,8 @@ const initUi = () => {
     state.bgLevel = savedBg;
     $('bg-level').value = String(Math.round(savedBg * 100));
   }
-  applyTopCompact(store.get('top_compact') === '1');
+  applyCompact('top-list', 'top-compact', store.get('top_compact') === '1');
+  applyCompact('history-list', 'history-compact', store.get('history_compact') === '1');
   if (!navigator.onLine) setStatus('Sin conexión a internet. SpoDJ seguirá cuando vuelva la red.', true);
 };
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initUi);

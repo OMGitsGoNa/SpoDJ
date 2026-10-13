@@ -569,8 +569,14 @@ button.chip:hover { color: var(--text); background: var(--panel); }
 .bg-level input { flex: 1; min-width: 0; }
 
 /* Vista compacta del top */
-#top-list.compact .track-row { padding: 4px 6px; }
-#top-list.compact .track-row img { display: none; }
+.list.compact .track-row { padding: 4px 6px; }
+.list.compact .track-row img { display: none; }
+/* Compacta: título, artista y género en una sola línea */
+.list.compact .track-row .meta { display: flex; align-items: baseline; gap: 8px; white-space: nowrap; min-width: 0; }
+.list.compact .track-row .meta > div { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.list.compact .track-row .meta > .tt { flex: 0 1 auto; }
+.list.compact .track-row .meta > .ta { flex: 0 1 auto; color: var(--muted); }
+.list.compact .track-row .meta > .tg { flex: 0 2 auto; margin-left: auto; }
 
 /* Títulos largos: desplazamiento automático dentro de su caja */
 .marq-box { overflow: hidden; }
