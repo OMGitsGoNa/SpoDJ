@@ -709,6 +709,17 @@ function onTrackChange(id) {
 
 }
 
+// Repetir canción: antes de que termine, si el botón está activo, se vuelve a poner la misma
+// canción (aquí es cuando se consulta a la API). Así no llega a pasar a la siguiente.
+function checkRepeat(t, st, paused) {
+  if (!t?.id || !st.duration) return;
+  if (st.position < st.duration - 3000) { state.repeatFiredId = null; return; }
+  if (!state.repeatOne || paused || st.position >= st.duration) return;
+  if (state.repeatFiredId === t.id) return;
+  state.repeatFiredId = t.id;
+  playUris([`spotify:track:${t.id}`]);
+}
+
 /* ---------- Continuar donde lo dejaste ---------- */
 // Guarda la canción y la posición cada 5 s (y al pausar), en el navegador.
 // Si al volver no hay nada sonando, se ofrece "Continuar" durante 7 días.
@@ -955,6 +966,7 @@ function applyState(st) {
   // Guardamos la última posición conocida para poder estimarla entre consultas.
   state.posBase = { position: st.position || 0, duration: st.duration || 0, paused, at: Date.now() };
   saveResume(t, st, paused);
+  checkRepeat(t, st, paused);
   updateFavicon(st.position || 0, st.duration || 0, paused);
 
   // Fin de la última recomendación del artista. Al acabar, Spotify para (y a veces repite
@@ -1600,18 +1612,12 @@ $('prev-btn').addEventListener('click', userControl(() => player?.previousTrack(
 $('toggle-btn').addEventListener('click', userControl(() => player?.togglePlay()));
 $('next-btn').addEventListener('click', userControl(() => player?.nextTrack()));
 
-// Repetir la canción actual (Spotify, solo esta canción). Una llamada a la API por cambio.
-$('repeat-btn').addEventListener('click', userControl(async () => {
-  if (!deviceId) return;
+// Repetir la canción actual: solo marca el botón. Al acercarse al final, checkRepeat decide.
+$('repeat-btn').addEventListener('click', userControl(() => {
   state.repeatOne = !state.repeatOne;
-  const mode = state.repeatOne ? 'track' : 'off';
-  try {
-    await api(`/me/player/repeat?${new URLSearchParams({ state: mode, device_id: deviceId })}`, { method: 'PUT' });
-  } catch {
-    state.repeatOne = !state.repeatOne; // no se pudo cambiar: volvemos al estado anterior
-    setStatus('No se ha podido cambiar la repetición.', true);
-  }
+  state.repeatFiredId = null;
   $('repeat-btn').setAttribute('aria-pressed', String(state.repeatOne));
+  $('repeat-btn').title = state.repeatOne ? 'Repetir esta canción: activado' : 'Repetir esta canción: desactivado';
 }));
 // Barra de progreso: mientras arrastras no se mueve sola; al soltar, salta a ese punto.
 const seek = $('seek');

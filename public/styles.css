@@ -553,7 +553,16 @@ button.chip:hover { color: var(--text); background: var(--panel); }
 }
 
 /* Repetir canción: indicador activo */
-#repeat-btn[aria-pressed="true"] { color: var(--accent); }
+.repeat-btn { opacity: 0.5; transition: opacity 0.2s ease, color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease; }
+.repeat-btn svg { display: block; }
+.repeat-btn:hover { opacity: 0.85; }
+/* Activo: color de énfasis, fondo suave y aro para que se note que la canción se repite */
+.repeat-btn[aria-pressed="true"] {
+  opacity: 1;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
 
 /* Brillo del fondo en el menú */
 .bg-level { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted); }
