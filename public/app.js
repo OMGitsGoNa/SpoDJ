@@ -881,29 +881,13 @@ $('bg-level').addEventListener('input', (event) => {
 // Vista compacta del top (se recuerda en el navegador).
 function applyTopCompact(on) {
   $('top-list').classList.toggle('compact', on);
-  $('top-compact').textContent = on ? 'Vista normal' : 'Vista compacta';
+  $('top-compact').setAttribute('aria-pressed', String(on));
+  $('top-compact').title = on ? 'Vista compacta: activada' : 'Vista compacta: desactivada';
 }
 $('top-compact').addEventListener('click', () => {
   const on = !$('top-list').classList.contains('compact');
   store.set('top_compact', on ? '1' : '0');
   applyTopCompact(on);
-});
-
-// Pantalla completa de la lista de canciones (Esc la cierra).
-$('top-full').addEventListener('click', () => {
-  if (document.fullscreenElement) {
-    document.exitFullscreen?.();
-    return;
-  }
-  const card = $('top-card');
-  if (!card.requestFullscreen) {
-    setStatus('Este navegador no permite pantalla completa.', true);
-    return;
-  }
-  card.requestFullscreen().catch(() => setStatus('No se ha podido abrir en pantalla completa.', true));
-});
-document.addEventListener('fullscreenchange', () => {
-  $('top-full').textContent = document.fullscreenElement ? 'Salir de pantalla completa' : 'Pantalla completa';
 });
 
 // Aviso claro cuando se corta la conexión a internet.
@@ -1048,7 +1032,9 @@ function renderHistory() {
     return;
   }
   items.forEach((track, i) => {
-    box.appendChild(trackRow(track, 0, () => playUris(items.slice(i).map((t) => t.uri))));
+    const row = trackRow(track, 0, () => playUris(items.slice(i).map((t) => t.uri)));
+    row.querySelector('.tg')?.remove(); // el historial no muestra género
+    box.appendChild(row);
   });
 }
 

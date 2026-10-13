@@ -127,9 +127,10 @@
         <section class="card" id="top-card">
           <div class="section-head">
             <h2>Tus canciones más escuchadas</h2>
-            <button class="small" id="top-compact" type="button">Vista compacta</button>
-            <button class="small" id="top-full" type="button">Pantalla completa</button>
-            <button class="small" id="top-play" type="button">Reproducir todo</button>
+            <div class="head-actions">
+              <button class="small" id="top-play" type="button">Reproducir todo</button>
+              <button class="small icon-toggle" id="top-compact" type="button" title="Vista compacta" aria-label="Vista compacta" aria-pressed="false"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path fill="currentColor" d="M3 15h18v-2H3v2zm0 4h18v-2H3v2zm0-8h18V9H3v2zm0-6v2h18V5H3z"/></svg></button>
+            </div>
           </div>
           <div class="list" id="top-list"></div>
         </section>

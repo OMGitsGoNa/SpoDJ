@@ -572,9 +572,6 @@ button.chip:hover { color: var(--text); background: var(--panel); }
 #top-list.compact .track-row { padding: 4px 6px; }
 #top-list.compact .track-row img { display: none; }
 
-/* Pantalla completa de la lista */
-#top-card:fullscreen { overflow: auto; padding: 24px; border-radius: 0; background: var(--panel); }
-
 /* Títulos largos: desplazamiento automático dentro de su caja */
 .marq-box { overflow: hidden; }
 .marq-box > span { display: inline-block; white-space: nowrap; animation: marq 10s ease-in-out infinite alternate; }
@@ -582,3 +579,11 @@ button.chip:hover { color: var(--text); background: var(--panel); }
 
 /* Con el salvapantallas activo, la web no se desplaza por detrás */
 html.ss-open, html.ss-open body { overflow: hidden; }
+
+/* Botón de icono que se enciende cuando está activo */
+.icon-toggle { display: inline-flex; align-items: center; justify-content: center; padding: 6px 8px; line-height: 0; }
+.icon-toggle svg { display: block; }
+.icon-toggle[aria-pressed="true"] { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: 0 0 0 2px var(--accent); }
+
+/* Botones de la cabecera de la sección, juntos */
+.head-actions { display: flex; align-items: center; gap: 8px; }
