@@ -852,6 +852,55 @@ async function pickFromLibrary() {
 }
 $('roulette-btn').addEventListener('click', pickFromLibrary);
 
+// Mezcla sin repetir artista: junta tus canciones del top y del historial (sin duplicados),
+// las ordena para que no suenen dos seguidas del mismo artista, y sustituye la cola.
+// No hace llamadas a la API: usa lo que ya está cargado.
+const MIX_SIZE = 5;
+// Añade 5 canciones a la cola sin repetir ninguna que ya esté en ella ni la que suena,
+// y sin dos seguidas del mismo artista (incluida la última de la cola).
+function buildMix() {
+  const queued = new Set(state.queue.map((x) => x.uri));
+  const pool = new Map();
+  const add = (t) => {
+    if (!t?.uri || pool.has(t.uri) || queued.has(t.uri) || t.id === state.currentId) return;
+    const artists = (t.artists || []).map((a) => a.name || '');
+    pool.set(t.uri, {
+      id: t.id,
+      uri: t.uri,
+      name: t.name,
+      artists: artists.join(', '),
+      artist: (artists[0] || '').toLowerCase(),
+    });
+  };
+  state.topTracks.forEach(add);
+  historyItems().forEach(add);
+
+  const wasEmpty = state.queue.length === 0;
+  const lastInQueue = state.queue.at(-1);
+  let last = lastInQueue ? lastInQueue.artists.split(',')[0].trim().toLowerCase() : null;
+
+  const remaining = shuffle([...pool.values()]);
+  const mix = [];
+  while (remaining.length && mix.length < MIX_SIZE) {
+    const i = remaining.findIndex((x) => x.artist !== last);
+    if (i === -1) break; // solo quedan canciones del mismo artista: paramos antes de romper la regla
+    const [pick] = remaining.splice(i, 1);
+    mix.push(pick);
+    last = pick.artist;
+  }
+  if (!mix.length) {
+    setStatus('No hay canciones nuevas que añadir sin repetir artista.', true);
+    return;
+  }
+  state.queue.push(...mix.map(({ artist, ...rest }) => rest));
+  saveQueue();
+  renderQueue();
+  openQueue();
+  setStatus(`Añadidas ${mix.length} canciones a la cola sin repetir artista seguido.`);
+  if (wasEmpty) playQueueNext(); // si la cola estaba vacía, empieza a sonar
+}
+$('mix-btn').addEventListener('click', buildMix);
+
 $('queue-clear').addEventListener('click', () => {
   state.queue = [];
   saveQueue();
