@@ -485,6 +485,9 @@ button.chip:hover { color: var(--text); background: var(--panel); }
   overflow: auto;
   box-shadow: 0 20px 50px #000a;
 }
+.resume { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; font-size: 0.85rem; color: var(--muted); }
+.resume[hidden] { display: none; }
+.resume span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .modal-card.wide { width: min(1400px, 100%); }
 .stats-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 28px; }
 .stats-col { min-width: 0; }

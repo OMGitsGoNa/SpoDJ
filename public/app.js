@@ -447,7 +447,7 @@ function initPlayer() {
 }
 
 // Debe llamarse directamente desde un clic (el navegador exige un gesto para reproducir audio).
-async function playUris(uris) {
+async function playUris(uris, positionMs = 0) {
   if (!deviceId) {
     setStatus('El reproductor aún se está conectando. Espera unos segundos.', true);
     return;
@@ -466,7 +466,7 @@ async function playUris(uris) {
   }
   const res = await api(`/me/player/play?device_id=${encodeURIComponent(deviceId)}`, {
     method: 'PUT',
-    body: JSON.stringify({ uris }),
+    body: JSON.stringify(positionMs > 0 ? { uris, position_ms: Math.round(positionMs) } : { uris }),
   });
   if (!res.ok && res.status !== 204) {
     setStatus(`Spotify no ha podido empezar la reproducción (${res.status}).`, true);
@@ -709,6 +709,133 @@ function onTrackChange(id) {
 
 }
 
+/* ---------- Continuar donde lo dejaste ---------- */
+// Guarda la canción y la posición cada 5 s (y al pausar), en el navegador.
+// Si al volver no hay nada sonando, se ofrece "Continuar" durante 7 días.
+const RESUME_MAX_AGE_MS = 7 * 86400000;
+
+function saveResume(t, st, paused) {
+  if (!t?.id || !st.duration) return;
+  if (st.position >= st.duration - 5000) { store.del('resume'); return; }
+  const now = Date.now();
+  if (now - (state.resumeSavedAt || 0) < 5000 && paused === state.resumePaused) return;
+  state.resumeSavedAt = now;
+  state.resumePaused = paused;
+  store.set('resume', JSON.stringify({
+    uri: `spotify:track:${t.id}`,
+    name: t.name,
+    artist: (t.artists || []).map((a) => a.name).join(', '),
+    position: st.position,
+    duration: st.duration,
+    at: now,
+  }));
+}
+
+function readResume() {
+  try {
+    const r = JSON.parse(store.get('resume') || 'null');
+    if (!r?.uri || Date.now() - r.at > RESUME_MAX_AGE_MS) return null;
+    return r;
+  } catch {
+    return null;
+  }
+}
+
+function renderResume() {
+  const r = readResume();
+  if (!r || state.currentId) { $('resume').hidden = true; return; }
+  $('resume-text').textContent = `Última: ${r.name} · ${fmtTime(r.position)}`;
+  $('resume').hidden = false;
+}
+function hideResume() {
+  $('resume').hidden = true;
+}
+$('resume-btn').addEventListener('click', () => {
+  const r = readResume();
+  if (r) playUris([r.uri], r.position || 0);
+});
+
+/* ---------- Avisos del sistema al cambiar de canción ---------- */
+// Solo avisa si la app está en segundo plano (pestaña oculta o PWA minimizada).
+function notifyOn() {
+  return store.get('notify') === '1';
+}
+function renderNotifyBtn() {
+  $('notify-toggle').textContent = notifyOn() ? 'Avisos: activados' : 'Avisos: desactivados';
+}
+async function toggleNotify() {
+  if (notifyOn()) {
+    store.set('notify', '0');
+    renderNotifyBtn();
+    return;
+  }
+  if (!('Notification' in window)) {
+    setStatus('Este navegador no permite avisos.', true);
+    return;
+  }
+  const perm = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
+  if (perm !== 'granted') {
+    setStatus('Sin permiso, no se pueden mostrar avisos.', true);
+    return;
+  }
+  store.set('notify', '1');
+  renderNotifyBtn();
+}
+$('notify-toggle').addEventListener('click', toggleNotify);
+
+function notifyTrack(t) {
+  if (!notifyOn() || !document.hidden || !('Notification' in window) || Notification.permission !== 'granted') return;
+  const opts = {
+    body: (t.artists || []).map((a) => a.name).join(', '),
+    icon: t.album?.images?.[0]?.url || '/favicon.ico',
+    tag: 'spodj-now', // el aviso nuevo sustituye al anterior
+    silent: true,
+  };
+  const fallback = () => { try { new Notification(t.name, opts); } catch { /* sin aviso */ } };
+  if (navigator.serviceWorker?.ready) {
+    navigator.serviceWorker.ready.then((reg) => reg.showNotification(t.name, opts)).catch(fallback);
+  } else {
+    fallback();
+  }
+}
+
+/* ---------- Progreso en el icono de la pestaña ---------- */
+// Mientras suena una canción, el icono muestra un anillo con el avance. Al pausar, vuelve el original.
+const FAV_HREF = '/favicon.ico';
+let favKey = null;
+function updateFavicon(pos, dur, paused) {
+  const link = document.querySelector('link[rel="icon"]');
+  if (!link) return;
+  if (paused || !dur) {
+    if (favKey !== null) { link.href = FAV_HREF; favKey = null; }
+    return;
+  }
+  const ratio = Math.min(1, Math.max(0, pos / dur));
+  const key = Math.round(ratio * 60); // se redibuja solo cuando cambia de forma visible
+  if (key === favKey) return;
+  favKey = key;
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 64;
+  const ctx = c.getContext('2d');
+  ctx.lineWidth = 10;
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#3a3a3a';
+  ctx.beginPath();
+  ctx.arc(32, 32, 24, 0, Math.PI * 2);
+  ctx.stroke();
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#1ed760';
+  ctx.strokeStyle = accent;
+  ctx.beginPath();
+  ctx.arc(32, 32, 24, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * ratio);
+  ctx.stroke();
+  link.href = c.toDataURL('image/png');
+}
+
+const initUi = () => { renderNotifyBtn(); renderResume(); };
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initUi);
+else initUi();
+
 /* ---------- Ficha de la canción sonando ---------- */
 const pendingArtists = new Set();
 
@@ -732,6 +859,8 @@ function applyState(st) {
     applyNowColor(t.album.images?.[0]?.url || '');
     setBgArt(t.album.images?.[0]?.url || '');
     if (!$('screensaver').hidden) renderScreensaver();
+    hideResume();
+    notifyTrack(t);
     markPlaying();
     updateNowGenre();
     onTrackChange(t.id);
@@ -745,6 +874,8 @@ function applyState(st) {
 
   // Guardamos la última posición conocida para poder estimarla entre consultas.
   state.posBase = { position: st.position || 0, duration: st.duration || 0, paused, at: Date.now() };
+  saveResume(t, st, paused);
+  updateFavicon(st.position || 0, st.duration || 0, paused);
 
   // Fin de la última recomendación del artista. Al acabar, Spotify para (y a veces repite
   // la misma canción en pausa) en vez de cambiar de id, así que miramos la posición anterior.
@@ -1708,59 +1839,6 @@ function fillYear(box, list, year) {
   });
   box.appendChild(ol);
 }
-function downloadYearCard(list, year) {
-  const y = yearStats(list, year);
-  if (!y.plays) return;
-  const c = document.createElement('canvas');
-  c.width = 1080;
-  c.height = 1350;
-  const ctx = c.getContext('2d');
-  const bg = ctx.createLinearGradient(0, 0, 1080, 1350);
-  bg.addColorStop(0, '#0f1115');
-  bg.addColorStop(1, '#2a1f3d');
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, 1080, 1350);
-  ctx.fillStyle = '#1ed760';
-  ctx.font = 'bold 56px sans-serif';
-  ctx.fillText(`Mi ${year} en SpoDJ`, 80, 130);
-  ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 120px sans-serif';
-  ctx.fillText(String(y.plays), 80, 300);
-  ctx.font = '40px sans-serif';
-  ctx.fillStyle = '#bbbbbb';
-  ctx.fillText('reproducciones', 80, 355);
-  ctx.fillStyle = '#ffffff';
-  ctx.font = '48px sans-serif';
-  ctx.fillText(`${y.distinct} canciones distintas · ${y.activeDays} días con música`, 80, 430);
-  ctx.fillText(`${formatHM(y.ms)} escuchando`, 80, 490);
-
-  const section = (title, y0, rows) => {
-    ctx.fillStyle = '#1ed760';
-    ctx.font = 'bold 44px sans-serif';
-    ctx.fillText(title, 80, y0);
-    ctx.font = '38px sans-serif';
-    rows.forEach((text, i) => {
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText(text, 80, y0 + 70 + i * 62);
-    });
-  };
-  const trim = (t) => (t.length > 40 ? `${t.slice(0, 39)}…` : t);
-  section('Top canciones', 600, y.tracks.map((r) => `${r.n}×  ${trim(r.name)} — ${trim(r.artist)}`));
-  section('Top artistas', 1040, y.artists.map(([name, n]) => `${n}×  ${trim(name)}`));
-  ctx.fillStyle = '#888888';
-  ctx.font = '30px sans-serif';
-  ctx.fillText('SpoDJ', 80, 1280);
-
-  c.toBlob((blob) => {
-    if (!blob) return;
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `spodj-${year}.png`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  });
-}
-
 $('open-stats').addEventListener('click', () => {
   toggleProfileMenu(false);
   openModal('Estadísticas', renderStats, true);
@@ -1806,6 +1884,181 @@ function changeVolume(delta) {
   renderVolume();
   applyOutputVolume();
 }
+
+/* ---------- Salvapantallas del reproductor ---------- */
+// Tras 30 s sin mover el ratón (ni pulsar nada) y con una canción sonando, aparece el reproductor a pantalla completa.
+const IDLE_MS = 30000;
+let lastActivity = Date.now();
+const markActivity = () => {
+  lastActivity = Date.now();
+  // Si el ratón se mueve, vuelve a verse
+  $('screensaver').classList.remove('ss-hide-cursor');
+};
+['mousemove', 'pointerdown', 'keydown', 'touchstart', 'wheel'].forEach((ev) =>
+  window.addEventListener(ev, markActivity, { passive: true }));
+
+const artistPhotoCache = new Map();
+async function artistPhotoFor(name, id) {
+  const key = (id || name || '').toLowerCase();
+  if (!name) return '';
+  if (artistPhotoCache.has(key)) return artistPhotoCache.get(key);
+  const top = (state.topArtists || []).find((a) => (id && a.id === id) || a.name.toLowerCase() === name.toLowerCase());
+  let url = top?.images?.[0]?.url || '';
+  if (!url) {
+    try {
+      const found = await apiJson(`/search?${new URLSearchParams({ q: `artist:"${name}"`, type: 'artist', limit: '1' })}`);
+      url = found.artists?.items?.[0]?.images?.[0]?.url || '';
+    } catch { /* sin foto */ }
+  }
+  artistPhotoCache.set(key, url);
+  return url;
+}
+
+function renderScreensaver() {
+  const t = state.trackInfo.get(state.currentId);
+  const main = t?.artists?.[0] || { id: null, name: ($('track-artist').textContent || '').split(',')[0].trim() };
+  $('ss-cover').src = $('cover').src || '';
+  $('ss-title').textContent = $('track-title').textContent;
+  $('ss-artist-name').textContent = main.name || '';
+  const img = $('ss-artist-img');
+  img.hidden = true;
+  artistPhotoFor(main.name, main.id).then((url) => {
+    if ($('ss-artist-name').textContent !== (main.name || '')) return; // respuesta vieja
+    img.src = url || '';
+    img.hidden = !url;
+  });
+}
+function openScreensaver() {
+  renderScreensaver();
+  $('screensaver').hidden = false;
+  $('screensaver').classList.add('ss-hide-cursor');
+}
+function closeScreensaver() {
+  $('screensaver').hidden = true;
+  $('screensaver').classList.remove('ss-hide-cursor');
+  lastActivity = Date.now(); // no vuelve a salir hasta otros 30 s sin actividad
+}
+$('ss-close').addEventListener('click', closeScreensaver);
+$('screensaver').addEventListener('click', (event) => {
+  if (event.target === $('screensaver')) markActivity();
+});
+
+setInterval(() => {
+  if (!$('screensaver').hidden) return;
+  const playing = state.lastTick && !state.lastTick.paused;
+  if (playing && Date.now() - lastActivity >= IDLE_MS) openScreensaver();
+}, 1000);
+
+// Barra de tiempo solo visual (sin manejador): avanza con la posición estimada
+setInterval(() => {
+  if ($('screensaver').hidden) return;
+  const p = estimatedPosition();
+  if (p && p.duration) $('ss-fill').style.width = `${Math.min(100, (p.position / p.duration) * 100)}%`;
+}, 500);
+
+/* ---------- Perfil de artista (panel de la izquierda) ---------- */
+let artistPanelSeq = 0;
+const artistPanelCache = new Map(); // id o nombre -> { at, artist }
+const ARTIST_PANEL_TTL = 10 * 60 * 1000;
+function closeArtistPanel() {
+  artistPanelSeq++;
+  $('artist-panel').classList.remove('open');
+}
+// Solo información del artista: una petición a Spotify (y la caché de 10 minutos).
+async function openArtistPanel(name, id = null) {
+  if (!name) return;
+  const seq = ++artistPanelSeq;
+  $('artist-panel').classList.add('open');
+  $('ap-name').textContent = name;
+  const info = $('ap-info');
+  info.textContent = '';
+  info.appendChild(emptyNote('Cargando información del artista…'));
+
+  const top = (state.topArtists || []).find((a) => (id && a.id === id) || a.name.toLowerCase() === name.toLowerCase());
+  const cacheKey = (id || name).toLowerCase();
+  const cached = artistPanelCache.get(cacheKey);
+  let artist = cached && Date.now() - cached.at < ARTIST_PANEL_TTL ? cached.artist : top;
+
+  try {
+    if (!artist || !artist.followers) {
+      if (id) artist = await apiJson(`/artists/${id}`);
+      else {
+        const found = await apiJson(`/search?${new URLSearchParams({ q: `artist:"${name}"`, type: 'artist', limit: '1' })}`);
+        artist = found.artists?.items?.[0] || top;
+      }
+      if (!artist) throw new Error('No he encontrado este artista en Spotify.');
+      artistPanelCache.set(cacheKey, { at: Date.now(), artist });
+    }
+    if (seq !== artistPanelSeq) return;
+    renderArtistInfo(artist, top, name);
+  } catch (err) {
+    if (seq !== artistPanelSeq) return;
+    if (top) renderArtistInfo(top, top, name);
+    else {
+      info.textContent = '';
+      info.appendChild(emptyNote(err.message || 'No se ha podido cargar el artista.'));
+    }
+  }
+}
+
+// Spotify no da los "oyentes mensuales"; Last.fm sí da sus oyentes, que es lo que mostramos.
+async function loadArtistListeners(name) {
+  const value = $('ap-listeners');
+  if (!value) return;
+  try {
+    const res = await fetch(`/api/artist-stats?${new URLSearchParams({ artist: name })}`);
+    const data = await res.json();
+    // Si el panel ya muestra otro artista, esta respuesta llega tarde y no se pinta
+    if ($('ap-listeners') !== value) return;
+    if (data.configured === false) value.textContent = 'Falta LASTFM_API_KEY';
+    else if (data.error) value.textContent = '—';
+    else value.textContent = Number(data.listeners || 0).toLocaleString('es-ES');
+  } catch {
+    value.textContent = '—';
+  }
+}
+
+function renderArtistInfo(artist, top, name) {
+  const img = $('ap-img');
+  const pic = artist.images?.[0]?.url || top?.images?.[0]?.url || '';
+  img.src = pic;
+  img.hidden = !pic;
+  const genres = artist.genres?.length ? artist.genres : (top?.genres || []);
+  $('ap-genres').textContent = genres.length ? genres.slice(0, 4).join(' · ') : 'Sin géneros en Spotify';
+  $('ap-name').textContent = artist.name || name;
+
+  const info = $('ap-info');
+  info.textContent = '';
+  const grid = el('div', 'stat-grid');
+  const followers = artist.followers?.total;
+  const listenersBox = el('div', 'stat');
+  const listenersValue = el('b', null, '…');
+  listenersValue.id = 'ap-listeners';
+  listenersBox.append(listenersValue, el('span', null, 'Oyentes (Last.fm)'));
+  const followersBox = el('div', 'stat');
+  followersBox.append(
+    el('b', null, followers != null ? followers.toLocaleString('es-ES') : '—'),
+    el('span', null, 'Seguidores en Spotify'),
+  );
+  grid.append(followersBox, listenersBox);
+  info.appendChild(grid);
+  loadArtistListeners(name);
+
+  const url = artist.external_urls?.spotify;
+  if (url) {
+    const link = el('a', 'ap-link', 'Abrir perfil en Spotify');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    info.appendChild(link);
+  }
+}
+$('ap-close').addEventListener('click', closeArtistPanel);
+$('track-artist').addEventListener('click', () => {
+  const t = state.trackInfo.get(state.currentId);
+  const first = t?.artists?.[0];
+  if (first?.name) openArtistPanel(first.name, first.id);
+});
 
 // Atajos globales. No actúan si el foco está en un campo de texto o un deslizador.
 document.addEventListener('keydown', (event) => {

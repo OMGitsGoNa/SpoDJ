@@ -27,6 +27,7 @@
           <button class="ghost small" id="profile-logout" type="button" hidden>Cerrar sesión</button>
           <button class="ghost small" id="open-stats" type="button">Estadísticas</button>
           <button class="ghost small" id="theme-toggle" type="button">Tema claro</button>
+          <button class="ghost small" id="notify-toggle" type="button">Avisos: desactivados</button>
           <button class="ghost small" id="open-help" type="button">Atajos de teclado</button>
           <!-- Color de énfasis: solo se ve el elegido; al pasar el ratón salen las demás. Los botones los pone app.js -->
           <div class="accent-row" id="accent-row" role="radiogroup" aria-label="Color de énfasis">
@@ -69,6 +70,11 @@
           <span id="t-cur">0:00</span>
           <input type="range" id="seek" min="0" max="1000" value="0" aria-label="Posición de la canción" />
           <span id="t-dur">0:00</span>
+        </div>
+
+        <div class="resume" id="resume" hidden>
+          <span id="resume-text"></span>
+          <button class="ghost small" id="resume-btn" type="button">Continuar</button>
         </div>
 
         <div class="player-extras">
