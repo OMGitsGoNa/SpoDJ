@@ -379,7 +379,8 @@ button.chip:hover { color: var(--text); background: var(--panel); }
 }
 .screensaver[hidden] { display: none; }
 @keyframes ss-in { from { opacity: 0; } to { opacity: 1; } }
-.ss-close { position: absolute; top: 18px; right: 18px; padding: 4px 12px; font-size: 1.4rem; line-height: 1.2; }
+.ss-close { position: absolute; top: 18px; right: 18px; padding: 8px 18px; font-size: 2.4rem; line-height: 1; }
+.screensaver, .screensaver * { cursor: none; }
 .ss-card { display: flex; flex-direction: column; align-items: center; gap: 22px; text-align: center; max-width: min(92vw, 720px); color: var(--text); }
 #ss-cover {
   width: min(70vw, 52vh, 480px);
@@ -394,8 +395,8 @@ button.chip:hover { color: var(--text); background: var(--panel); }
 .ss-artist-text { text-align: left; }
 .ss-name { font-size: 1.4rem; font-weight: 700; }
 .ss-title { font-size: 1.1rem; color: var(--muted); }
-.ss-ctrl { display: flex; gap: 12px; }
-.ss-ctrl button { font-size: 1.4rem; padding: 6px 18px; }
+.ss-progress { width: min(70vw, 560px); height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.2); overflow: hidden; }
+#ss-fill { height: 100%; width: 0; background: var(--accent); }
 
 /* ---------- Perfil de artista (panel de la izquierda) ---------- */
 .artist-panel {

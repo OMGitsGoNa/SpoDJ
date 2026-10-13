@@ -701,7 +701,6 @@ function applyState(st) {
   const paused = Boolean(st.paused);
 
   $('toggle-btn').textContent = paused ? '▶' : '⏸';
-  if (!$('screensaver').hidden) $('ss-toggle').textContent = paused ? '▶' : '⏸';
   $('toggle-btn').title = paused ? 'Reproducir' : 'Pausa';
   $('now').classList.toggle('playing', !paused);
 
@@ -1305,7 +1304,6 @@ function renderScreensaver() {
   $('ss-cover').src = $('cover').src || '';
   $('ss-title').textContent = $('track-title').textContent;
   $('ss-artist-name').textContent = main.name || '';
-  $('ss-toggle').textContent = $('toggle-btn').textContent;
   const img = $('ss-artist-img');
   img.hidden = true;
   artistPhotoFor(main.name, main.id).then((url) => {
@@ -1323,9 +1321,6 @@ function closeScreensaver() {
   lastActivity = Date.now(); // no vuelve a salir hasta otros 30 s sin actividad
 }
 $('ss-close').addEventListener('click', closeScreensaver);
-$('ss-prev').addEventListener('click', () => { state.lastUserAction = Date.now(); player?.previousTrack(); });
-$('ss-toggle').addEventListener('click', () => { state.lastUserAction = Date.now(); player?.togglePlay(); });
-$('ss-next').addEventListener('click', () => { state.lastUserAction = Date.now(); player?.nextTrack(); });
 $('screensaver').addEventListener('click', (event) => {
   if (event.target === $('screensaver')) markActivity();
 });
@@ -1335,6 +1330,13 @@ setInterval(() => {
   const playing = state.lastTick && !state.lastTick.paused;
   if (playing && Date.now() - lastActivity >= IDLE_MS) openScreensaver();
 }, 1000);
+
+// Barra de tiempo solo visual (sin manejador): avanza con la posición estimada
+setInterval(() => {
+  if ($('screensaver').hidden) return;
+  const p = estimatedPosition();
+  if (p && p.duration) $('ss-fill').style.width = `${Math.min(100, (p.position / p.duration) * 100)}%`;
+}, 500);
 
 /* ---------- Perfil de artista (panel de la izquierda) ---------- */
 let artistPanelSeq = 0;
