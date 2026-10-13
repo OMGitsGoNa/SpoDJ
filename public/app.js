@@ -2035,10 +2035,12 @@ function openScreensaver() {
   renderScreensaver();
   $('screensaver').hidden = false;
   $('screensaver').classList.add('ss-hide-cursor');
+  document.documentElement.classList.add('ss-open'); // bloquea el scroll de la web mientras está activo
 }
 function closeScreensaver() {
   $('screensaver').hidden = true;
   $('screensaver').classList.remove('ss-hide-cursor');
+  document.documentElement.classList.remove('ss-open');
   lastActivity = Date.now(); // no vuelve a salir hasta otros 30 s sin actividad
 }
 $('ss-close').addEventListener('click', closeScreensaver);
