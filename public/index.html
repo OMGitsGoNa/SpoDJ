@@ -108,21 +108,13 @@
           <button type="button" data-range="long_term">Último año</button>
         </div>
         <div>
+          <button class="ghost small" id="open-queue" type="button" aria-haspopup="dialog">Cola e historial</button>
           <button class="ghost small" id="refresh-btn" type="button">Actualizar</button>
           <button class="ghost small" id="logout-btn" type="button">Salir</button>
         </div>
       </div>
 
       <div class="columns">
-        <!-- Izquierda: historial de SpoDJ -->
-        <section class="card" id="history-card">
-          <div class="section-head">
-            <h2>Historial en SpoDJ</h2>
-            <button class="small icon-toggle" id="history-compact" type="button" title="Vista compacta" aria-label="Vista compacta del historial" aria-pressed="false"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path fill="currentColor" d="M3 15h18v-2H3v2zm0 4h18v-2H3v2zm0-8h18V9H3v2zm0-6v2h18V5H3z"/></svg></button>
-          </div>
-          <div class="sub" style="margin:-4px 0 8px">Las últimas 20 canciones que has escuchado aquí.</div>
-          <div class="list" id="history-list"></div>
-        </section>
 
         <!-- Centro: top de canciones -->
         <section class="card" id="top-card">
@@ -176,6 +168,22 @@
     </div>
     <div class="sub" id="ap-genres"></div>
     <div id="ap-info"></div>
+  </aside>
+
+  <!-- Cajón lateral derecho: cola e historial -->
+  <aside id="queue-panel" class="queue-panel" aria-label="Cola e historial">
+    <div class="qp-head">
+      <h2>Cola e historial</h2>
+      <button class="ghost small" id="queue-close" type="button" aria-label="Cerrar cola e historial">×</button>
+    </div>
+    <section id="history-card">
+          <div class="section-head">
+            <h2>Historial en SpoDJ</h2>
+            <button class="small icon-toggle" id="history-compact" type="button" title="Vista compacta" aria-label="Vista compacta del historial" aria-pressed="false"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path fill="currentColor" d="M3 15h18v-2H3v2zm0 4h18v-2H3v2zm0-8h18V9H3v2zm0-6v2h18V5H3z"/></svg></button>
+          </div>
+          <div class="sub" style="margin:-4px 0 8px">Las últimas 20 canciones que has escuchado aquí.</div>
+          <div class="list" id="history-list"></div>
+        </section>
   </aside>
 
   <!-- Ventana emergente: estadísticas y atajos (la rellena app.js) -->

@@ -1883,6 +1883,16 @@ function renderArtistInfo(artist, top, name) {
   }
 }
 $('ap-close').addEventListener('click', closeArtistPanel);
+
+// Cajón de cola e historial (lado derecho).
+function openQueue() {
+  $('queue-panel').classList.add('open');
+}
+function closeQueue() {
+  $('queue-panel').classList.remove('open');
+}
+$('open-queue').addEventListener('click', openQueue);
+$('queue-close').addEventListener('click', closeQueue);
 $('track-artist').addEventListener('click', () => {
   const t = state.trackInfo.get(state.currentId);
   const first = t?.artists?.[0];
@@ -1895,7 +1905,7 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {
     if (!$('modal').hidden) closeModal();
     else if (!$('screensaver').hidden) closeScreensaver();
-    else closeArtistPanel();
+    else { closeQueue(); closeArtistPanel(); }
     return;
   }
   if (!$('modal').hidden) return;
