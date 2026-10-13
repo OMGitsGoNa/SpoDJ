@@ -832,7 +832,87 @@ function updateFavicon(pos, dur, paused) {
   link.href = c.toDataURL('image/png');
 }
 
-const initUi = () => { renderNotifyBtn(); renderResume(); };
+
+/* ---------- Extras: brillo, repetir, vista compacta, pantalla completa, títulos largos, conexión ---------- */
+// Títulos largos: si no caben, se desplazan despacio dentro de su caja.
+function setMarquee(el, text) {
+  el.dataset.full = text;
+  el.classList.remove('marq-box');
+  el.style.removeProperty('--shift');
+  el.textContent = '';
+  const inner = document.createElement('span');
+  inner.textContent = text;
+  el.appendChild(inner);
+  requestAnimationFrame(() => {
+    const over = inner.scrollWidth - el.clientWidth;
+    if (over > 4) {
+      el.style.setProperty('--shift', `-${over}px`);
+      el.classList.add('marq-box');
+    }
+  });
+}
+window.addEventListener('resize', () => {
+  ['track-title', 'track-artist'].forEach((id) => {
+    const el = $(id);
+    if (el.dataset.full) setMarquee(el, el.dataset.full);
+  });
+});
+
+// Brillo del fondo: el deslizador del menú guarda el valor y se aplica al momento.
+$('bg-level').addEventListener('input', (event) => {
+  state.bgLevel = Number(event.target.value) / 100;
+  store.set('bg_level', String(state.bgLevel));
+  const img = $('bg-art');
+  if (img.src && img.style.opacity !== '0') img.style.opacity = String(bgOpacity());
+});
+
+
+// Vista compacta del top (se recuerda en el navegador).
+function applyTopCompact(on) {
+  $('top-list').classList.toggle('compact', on);
+  $('top-compact').textContent = on ? 'Vista normal' : 'Vista compacta';
+}
+$('top-compact').addEventListener('click', () => {
+  const on = !$('top-list').classList.contains('compact');
+  store.set('top_compact', on ? '1' : '0');
+  applyTopCompact(on);
+});
+
+// Pantalla completa de la lista de canciones (Esc la cierra).
+$('top-full').addEventListener('click', () => {
+  if (document.fullscreenElement) {
+    document.exitFullscreen?.();
+    return;
+  }
+  const card = $('top-card');
+  if (!card.requestFullscreen) {
+    setStatus('Este navegador no permite pantalla completa.', true);
+    return;
+  }
+  card.requestFullscreen().catch(() => setStatus('No se ha podido abrir en pantalla completa.', true));
+});
+document.addEventListener('fullscreenchange', () => {
+  $('top-full').textContent = document.fullscreenElement ? 'Salir de pantalla completa' : 'Pantalla completa';
+});
+
+// Aviso claro cuando se corta la conexión a internet.
+window.addEventListener('offline', () => setStatus('Sin conexión a internet. SpoDJ seguirá cuando vuelva la red.', true));
+window.addEventListener('online', () => {
+  setStatus('Conexión recuperada.');
+  setTimeout(() => { if (navigator.onLine) setStatus(''); }, 3000);
+});
+
+const initUi = () => {
+  renderNotifyBtn();
+  renderResume();
+  const savedBg = Number(store.get('bg_level'));
+  if (store.get('bg_level') !== null && !Number.isNaN(savedBg)) {
+    state.bgLevel = savedBg;
+    $('bg-level').value = String(Math.round(savedBg * 100));
+  }
+  applyTopCompact(store.get('top_compact') === '1');
+  if (!navigator.onLine) setStatus('Sin conexión a internet. SpoDJ seguirá cuando vuelva la red.', true);
+};
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initUi);
 else initUi();
 
@@ -853,8 +933,8 @@ function applyState(st) {
     state.currentId = t.id;
     state.endFired = false;
     state.counted.clear();
-    $('track-title').textContent = t.name;
-    $('track-artist').textContent = t.artists.map((a) => a.name).join(', ');
+    setMarquee($('track-title'), t.name);
+    setMarquee($('track-artist'), t.artists.map((a) => a.name).join(', '));
     $('cover').src = t.album.images?.[0]?.url || '';
     applyNowColor(t.album.images?.[0]?.url || '');
     setBgArt(t.album.images?.[0]?.url || '');
@@ -1004,7 +1084,10 @@ function fadeTick() {
 
 // Portada de fondo: aparece en 2 s al empezar la canción y, si el fundido está activo,
 // se desvanece junto con el final de la canción.
-const BG_OPACITY = 0.2;
+// Brillo de la portada de fondo: lo elige el usuario en el menú (por defecto 20 %).
+function bgOpacity() {
+  return state.bgLevel ?? 0.2;
+}
 const BG_FADE_IN_MS = 2000;
 function setBgArt(url) {
   const img = $('bg-art');
@@ -1022,7 +1105,7 @@ function setBgArt(url) {
   img.style.opacity = '0';
   void img.offsetWidth;
   img.style.transition = `opacity ${BG_FADE_IN_MS}ms ease`;
-  img.style.opacity = String(BG_OPACITY);
+  img.style.opacity = String(bgOpacity());
 }
 function updateBgFadeOut(p) {
   const img = $('bg-art');
@@ -1033,13 +1116,13 @@ function updateBgFadeOut(p) {
   // Solo actuamos cuando la canción se está acabando; si no, dejamos la entrada en marcha
   if (out >= 1) return;
   img.style.transition = 'opacity .15s linear';
-  img.style.opacity = String(BG_OPACITY * out);
+  img.style.opacity = String(bgOpacity() * out);
 }
 function restoreBgArt() {
   const img = $('bg-art');
   if (!img.dataset.src) return;
   img.style.transition = 'opacity .35s ease';
-  img.style.opacity = String(BG_OPACITY);
+  img.style.opacity = String(bgOpacity());
 }
 
 function startFade() {
@@ -1516,6 +1599,20 @@ const userControl = (action) => () => {
 $('prev-btn').addEventListener('click', userControl(() => player?.previousTrack()));
 $('toggle-btn').addEventListener('click', userControl(() => player?.togglePlay()));
 $('next-btn').addEventListener('click', userControl(() => player?.nextTrack()));
+
+// Repetir la canción actual (Spotify, solo esta canción). Una llamada a la API por cambio.
+$('repeat-btn').addEventListener('click', userControl(async () => {
+  if (!deviceId) return;
+  state.repeatOne = !state.repeatOne;
+  const mode = state.repeatOne ? 'track' : 'off';
+  try {
+    await api(`/me/player/repeat?${new URLSearchParams({ state: mode, device_id: deviceId })}`, { method: 'PUT' });
+  } catch {
+    state.repeatOne = !state.repeatOne; // no se pudo cambiar: volvemos al estado anterior
+    setStatus('No se ha podido cambiar la repetición.', true);
+  }
+  $('repeat-btn').setAttribute('aria-pressed', String(state.repeatOne));
+}));
 // Barra de progreso: mientras arrastras no se mueve sola; al soltar, salta a ese punto.
 const seek = $('seek');
 seek.addEventListener('input', () => {

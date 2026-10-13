@@ -551,3 +551,22 @@ button.chip:hover { color: var(--text); background: var(--panel); }
   #now .controls { margin-left: 0; flex-basis: 100%; justify-content: center; }
   .volume input[type="range"] { max-width: none; }
 }
+
+/* Repetir canción: indicador activo */
+#repeat-btn[aria-pressed="true"] { color: var(--accent); }
+
+/* Brillo del fondo en el menú */
+.bg-level { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted); }
+.bg-level input { flex: 1; min-width: 0; }
+
+/* Vista compacta del top */
+#top-list.compact .track-row { padding: 4px 6px; }
+#top-list.compact .track-row img { display: none; }
+
+/* Pantalla completa de la lista */
+#top-card:fullscreen { overflow: auto; padding: 24px; border-radius: 0; background: var(--panel); }
+
+/* Títulos largos: desplazamiento automático dentro de su caja */
+.marq-box { overflow: hidden; }
+.marq-box > span { display: inline-block; white-space: nowrap; animation: marq 10s ease-in-out infinite alternate; }
+@keyframes marq { 0%, 15% { transform: translateX(0); } 85%, 100% { transform: translateX(var(--shift)); } }

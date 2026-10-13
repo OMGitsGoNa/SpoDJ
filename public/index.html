@@ -28,6 +28,7 @@
           <button class="ghost small" id="open-stats" type="button">Estadísticas</button>
           <button class="ghost small" id="theme-toggle" type="button">Tema claro</button>
           <button class="ghost small" id="notify-toggle" type="button">Avisos: desactivados</button>
+          <label class="bg-level">Brillo del fondo <input type="range" id="bg-level" min="0" max="50" step="1" value="20" aria-label="Brillo del fondo" /></label>
           <button class="ghost small" id="open-help" type="button">Atajos de teclado</button>
           <!-- Color de énfasis: solo se ve el elegido; al pasar el ratón salen las demás. Los botones los pone app.js -->
           <div class="accent-row" id="accent-row" role="radiogroup" aria-label="Color de énfasis">
@@ -64,6 +65,7 @@
           <button class="ghost" id="prev-btn" title="Anterior" aria-label="Anterior">⏮</button>
           <button class="ghost" id="toggle-btn" title="Reproducir" aria-label="Pausa o reproducir">▶</button>
           <button class="ghost" id="next-btn" title="Siguiente" aria-label="Siguiente">⏭</button>
+          <button class="ghost" id="repeat-btn" title="Repetir esta canción" aria-label="Repetir esta canción" aria-pressed="false">🔁</button>
         </div>
 
         <div class="progress">
@@ -122,9 +124,11 @@
         </section>
 
         <!-- Centro: top de canciones -->
-        <section class="card">
+        <section class="card" id="top-card">
           <div class="section-head">
             <h2>Tus canciones más escuchadas</h2>
+            <button class="small" id="top-compact" type="button">Vista compacta</button>
+            <button class="small" id="top-full" type="button">Pantalla completa</button>
             <button class="small" id="top-play" type="button">Reproducir todo</button>
           </div>
           <div class="list" id="top-list"></div>
