@@ -338,6 +338,11 @@ async function apiJson(path) {
     if (res.status === 403) {
       throw new Error('Spotify ha denegado el acceso (403). Revisa que tu cuenta esté en "User management" de tu app del Dashboard.');
     }
+    if (res.status === 429) {
+      const err = new Error('Spotify está limitando las peticiones. Espera un minuto y vuelve a intentarlo.');
+      err.status = 429;
+      throw err;
+    }
     if (!res.ok) {
       const err = new Error(`Spotify respondió con un error (${res.status}).`);
       err.status = res.status;
@@ -1267,6 +1272,93 @@ async function antiBubble(button) {
   }
 }
 
+/* ---------- Perfil de artista (panel de la izquierda) ---------- */
+let artistPanelSeq = 0;
+const artistPanelCache = new Map(); // id o nombre -> { at, artist }
+const ARTIST_PANEL_TTL = 10 * 60 * 1000;
+function closeArtistPanel() {
+  artistPanelSeq++;
+  $('artist-panel').classList.remove('open');
+}
+// Solo información del artista: una petición a Spotify (y la caché de 10 minutos).
+async function openArtistPanel(name, id = null) {
+  if (!name) return;
+  const seq = ++artistPanelSeq;
+  $('artist-panel').classList.add('open');
+  $('ap-name').textContent = name;
+  const info = $('ap-info');
+  info.textContent = '';
+  info.appendChild(emptyNote('Cargando información del artista…'));
+
+  const top = (state.topArtists || []).find((a) => (id && a.id === id) || a.name.toLowerCase() === name.toLowerCase());
+  const cacheKey = (id || name).toLowerCase();
+  const cached = artistPanelCache.get(cacheKey);
+  let artist = cached && Date.now() - cached.at < ARTIST_PANEL_TTL ? cached.artist : top;
+
+  try {
+    if (!artist || !artist.followers) {
+      if (id) artist = await apiJson(`/artists/${id}`);
+      else {
+        const found = await apiJson(`/search?${new URLSearchParams({ q: `artist:"${name}"`, type: 'artist', limit: '1' })}`);
+        artist = found.artists?.items?.[0] || top;
+      }
+      if (!artist) throw new Error('No he encontrado este artista en Spotify.');
+      artistPanelCache.set(cacheKey, { at: Date.now(), artist });
+    }
+    if (seq !== artistPanelSeq) return;
+    renderArtistInfo(artist, top, name);
+  } catch (err) {
+    if (seq !== artistPanelSeq) return;
+    if (top) renderArtistInfo(top, top, name);
+    else {
+      info.textContent = '';
+      info.appendChild(emptyNote(err.message || 'No se ha podido cargar el artista.'));
+    }
+  }
+}
+
+function renderArtistInfo(artist, top, name) {
+  const img = $('ap-img');
+  const pic = artist.images?.[0]?.url || top?.images?.[0]?.url || '';
+  img.src = pic;
+  img.hidden = !pic;
+  const genres = artist.genres?.length ? artist.genres : (top?.genres || []);
+  $('ap-genres').textContent = genres.length ? genres.slice(0, 4).join(' · ') : 'Sin géneros en Spotify';
+  $('ap-name').textContent = artist.name || name;
+
+  const info = $('ap-info');
+  info.textContent = '';
+  const grid = el('div', 'stat-grid');
+  const followers = artist.followers?.total;
+  [[followers != null ? followers.toLocaleString('es-ES') : '—', 'seguidores en Spotify'],
+   [artist.popularity != null ? `${artist.popularity} / 100` : '—', 'popularidad']].forEach(([value, label]) => {
+    const box = el('div', 'stat');
+    box.appendChild(el('b', null, String(value)));
+    box.appendChild(el('span', null, label));
+    grid.appendChild(box);
+  });
+  info.appendChild(grid);
+
+  const url = artist.external_urls?.spotify;
+  if (url) {
+    const link = el('a', 'ghost small', 'Abrir perfil en Spotify');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.style.display = 'inline-block';
+    link.style.padding = '6px 12px';
+    link.style.borderRadius = '999px';
+    link.style.textDecoration = 'none';
+    info.appendChild(link);
+  }
+}
+$('ap-close').addEventListener('click', closeArtistPanel);
+$('track-artist').addEventListener('click', () => {
+  const t = state.trackInfo.get(state.currentId);
+  const first = t?.artists?.[0];
+  if (first?.name) openArtistPanel(first.name, first.id);
+});
+
 function renderRecs() {
   const box = $('recs');
   box.textContent = '';
@@ -1286,7 +1378,12 @@ function renderRecs() {
   play.textContent = 'Reproducir';
   play.disabled = r.loading || !r.tracks.length;
   play.addEventListener('click', () => playUris(r.tracks.map((t) => t.uri)));
-  head.append(h, play);
+  const profile = document.createElement('button');
+  profile.type = 'button';
+  profile.className = 'ghost small';
+  profile.textContent = 'Perfil';
+  profile.addEventListener('click', () => openArtistPanel(r.name, r.id));
+  head.append(h, profile, play);
   box.appendChild(head);
 
   const list = document.createElement('div');
@@ -1597,6 +1694,7 @@ document.addEventListener('keydown', (event) => {
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   if (event.key === 'Escape') {
     if (!$('modal').hidden) closeModal();
+    else closeArtistPanel();
     return;
   }
   if (!$('modal').hidden) return;

@@ -143,6 +143,17 @@
     </section>
   </div>
 
+  <!-- Perfil de artista: panel que se abre por la izquierda (lo rellena app.js) -->
+  <aside id="artist-panel" class="artist-panel" aria-label="Perfil del artista">
+    <div class="ap-head">
+      <img id="ap-img" alt="" hidden />
+      <h2 id="ap-name"></h2>
+      <button class="ghost small" id="ap-close" type="button" aria-label="Cerrar perfil">×</button>
+    </div>
+    <div class="sub" id="ap-genres"></div>
+    <div id="ap-info"></div>
+  </aside>
+
   <!-- Ventana emergente: estadísticas y atajos (la rellena app.js) -->
   <div id="modal" class="modal" hidden>
     <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
